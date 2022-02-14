@@ -106,7 +106,7 @@ std::string stringify(const T& x) {
 
 /* dump */
 #ifdef _MSC_VER
-//#define ENABLE_DUMP
+#define ENABLE_DUMP
 #endif
 #ifdef ENABLE_DUMP
 #define DUMPOUT std::cerr
@@ -221,31 +221,43 @@ namespace NSolver {
         }
     };
 
-    struct Cmd {
+    struct Rect {
+        int y, x, height, width;
+        Rect(int y = -1, int x = -1, int height = -1, int width = -1)
+            : y(y), x(x), height(height), width(width) {}
+        string stringify() const {
+            return format("(%d,%d,%d,%d)", y, x, height, width);
+        }
+    };
+
+    struct Action {
         enum struct Type {
             MOVE, BLOCK, WAIT
         };
         Type type;
-        int y, x, mask, w;
-        Cmd(Type type, int y, int x, int mask, int wait) : type(type), y(y), x(x), mask(mask), w(wait) {}
-        static Cmd move(int y, int x) {
-            return Cmd(Type::MOVE, y, x, -1, -1);
+        int y, x, mask, time;
+        Action(Type type, int y, int x, int mask, int time) : type(type), y(y), x(x), mask(mask), time(time) {}
+        static Action move(int y, int x) {
+            return Action(Type::MOVE, y, x, -1, -1);
         }
-        static Cmd block(int mask) {
-            return Cmd(Type::BLOCK, -1, -1, mask, -1);
+        static Action move(const Point& p) {
+            return move(p.y, p.x);
         }
-        static Cmd wait(int w) {
-            return Cmd(Type::WAIT, -1, -1, -1, w);
+        static Action block(int mask) {
+            return Action(Type::BLOCK, -1, -1, mask, -1);
+        }
+        static Action wait(int time) {
+            return Action(Type::WAIT, -1, -1, -1, time);
         }
         string stringify() const {
             switch (type)
             {
-            case Cmd::Type::MOVE:
+            case Action::Type::MOVE:
                 return format("move(%d,%d)", y, x);
-            case Cmd::Type::BLOCK:
+            case Action::Type::BLOCK:
                 return format("block(%s)", std::bitset<4>(mask).to_string().c_str());
-            case Cmd::Type::WAIT:
-                return format("wait(%d)", w);
+            case Action::Type::WAIT:
+                return format("wait(%d)", time);
             default:
                 return "";
             }
@@ -255,52 +267,47 @@ namespace NSolver {
 
     struct State {
 
-        static constexpr bool debug = false;
-
         std::istream& in;
         std::ostream& out;
+
+        int turn;
 
         vector<Pet> pets;
         vector<Human> humans;
 
-        vector<std::deque<Cmd>> cmd_queue;
-
+        vector<std::deque<Action>> action_queue_list;
 
         bool blocked[N][N];
         int human_count[N][N];
         int pet_count[N][N];
 
-        bool blocked_tmp[N][N];
-        int human_count_tmp[N][N];
+        bool blocked_tmp[N][N]; // ターン t での柵の設置予定場所に人間が飛び込むのを禁止する
+        int human_count_tmp[N][N]; // ターン t での人間の移動予定場所に柵を突き立てるのを禁止する
+        // TODO: 人間は移動によって重なることが許されていそうなので、許容する
 
         State(std::istream& in, std::ostream& out) : in(in), out(out) { init(); }
 
         void init() {
-            if (debug) cerr << format("--- %s called ---\n", __FUNCTION__);
             Fill(blocked, false);
             Fill(human_count, 0);
             Fill(pet_count, 0);
+            turn = 0;
             int num_pets; in >> num_pets;
-            if (debug) cerr << format("num_pets: %d\n", num_pets);
             for (int pid = 0; pid < num_pets; pid++) {
                 int y, x, t;
                 cin >> y >> x >> t;
                 x--; y--; t--;
-                if (debug) cerr << format("position of pet %d: (%d, %d)\n", pid, y, x);
                 pets.emplace_back(pid, y, x, t);
                 pet_count[y][x]++;
             }
             int num_humans; in >> num_humans;
-            if (debug) cerr << format("num_humans: %d\n", num_humans);
             for (int hid = 0; hid < num_humans; hid++) {
                 int y, x;
                 cin >> y >> x;
                 x--; y--;
-                if (debug) cerr << format("position of human %d: (%d, %d)\n", hid, y, x);
                 humans.emplace_back(hid, y, x);
                 human_count[y][x]++;
             }
-            if (debug) cerr << format("--- %s end ---\n", __FUNCTION__);
         }
 
         vector<string> load() {
@@ -311,6 +318,7 @@ namespace NSolver {
                 for (char c : pet_moves[pid]) {
                     pet_count[pet.y][pet.x]--;
                     int d = c2d[c];
+                    //dump(turn, pid, d, pet.y, pet.x, pet.y + dy[d], pet.x + dx[d]);
                     pet.y += dy[d];
                     pet.x += dx[d];
                     pet_count[pet.y][pet.x]++;
@@ -323,97 +331,130 @@ namespace NSolver {
             return 0 <= y && y < N && 0 <= x && x < N;
         }
 
+        // (y, x) に柵を設置可能か？
         bool can_place(int y, int x) const {
+            // 領域内 || 重複して設置しない || 人間に刺さない || ペットに刺さない
             if (!is_inside(y, x) || blocked_tmp[y][x] || human_count_tmp[y][x] || pet_count[y][x]) return false;
             for (int d = 0; d < 4; d++) {
                 int ny = y + dy[d], nx = x + dx[d];
                 if (!is_inside(ny, nx)) continue;
+                // ペットの 4 近傍に置かない
                 if (pet_count[ny][nx]) return false;
             }
             return true;
         }
 
+        // 人間 hid が (gy, gx) に最短経路で移動するための移動方向（候補複数ならランダム）
         char calc_move(int hid, int gy, int gx) {
+
             static constexpr int inf = INT_MAX / 8;
-            // 目的地からの距離を計算
             static int dist[N][N];
-            if (humans[hid].y == gy && humans[hid].x == gx) return '.';
+
+            auto [_, sy, sx] = humans[hid];
+            assert(sy != gy || sx != gx);
+
+            // pet, human は無視して目的地からの距離を計算
             Fill(dist, inf);
             std::queue<Point> qu;
             qu.emplace(gy, gx);
-            // pet は無視して最短路を計算
             dist[gy][gx] = 0;
             while (!qu.empty()) {
                 auto [y, x] = qu.front(); qu.pop();
                 for (int d = 0; d < 4; d++) {
                     int ny = y + dy[d], nx = x + dx[d];
+                    // 設置予定の柵も含む
                     if (!is_inside(ny, nx) || blocked_tmp[ny][nx] || dist[ny][nx] != inf) continue;
                     dist[ny][nx] = dist[y][x] + 1;
                     qu.emplace(ny, nx);
                 }
             }
-            auto [_, sy, sx] = humans[hid];
+
             if (dist[sy][sx] == inf) return '.'; // 移動不可
             
+            // 最短経路移動方向の候補を調べる
             int min_dist = inf;
             vector<int> cands;
             for (int d = 0; d < 4; d++) {
                 int ny = sy + dy[d], nx = sx + dx[d];
-                if (!is_inside(ny, nx) || blocked_tmp[ny][nx] || pet_count[ny][nx] || dist[ny][nx] > min_dist) continue;
+                // 柵とペットを踏まない
+                // 人間については、元からいた場所は避ける (移動先が重複するのは許す)
+                if (!is_inside(ny, nx) || blocked_tmp[ny][nx] || human_count[ny][nx] || pet_count[ny][nx] || dist[ny][nx] > min_dist) continue;
                 if (dist[ny][nx] < min_dist) {
                     min_dist = dist[ny][nx];
                     cands.clear();
                 }
                 cands.push_back(d);
             }
-            if (min_dist == inf) return '.';
+
+            if (min_dist == inf) return '.'; // 移動不可 (pet に包囲されるケースが稀にある)
+
+            // ランダムで選ぶ
             int d = cands[rnd.next_int(cands.size())];
-            human_count_tmp[sy + dy[d]][sx + dx[d]]++;
             return d2C[d];
         }
 
+        // 柵の設置
         char calc_block(int hid, int mask) {
             auto [_, y, x] = humans[hid];
             for (int d = 0; d < 4; d++) if (mask >> d & 1) {
                 if (can_place(y + dy[d], x + dx[d])) {
-                    blocked_tmp[y + dy[d]][x + dx[d]] = true;
                     return d2c[d];
                 }
             }
             return '.';
         }
 
-        char calc_move(int hid) {
-            auto& cqu = cmd_queue[hid];
-            if (cqu.empty()) return '.';
-            auto cmd = cqu.front();
-            auto type = cmd.type;
+        char calc_action(int hid) {
+            auto& action_queue = action_queue_list[hid];
+            auto [_, y, x] = humans[hid];
+            
+            if (action_queue.empty()) return '.';
+            auto action = action_queue.front();
+            auto type = action.type;
             switch (type)
             {
-            case Cmd::Type::MOVE:
-                return calc_move(hid, cmd.y, cmd.x);
-            case Cmd::Type::BLOCK:
-                return calc_block(hid, cmd.mask);
-            case Cmd::Type::WAIT:
+            case Action::Type::MOVE:
+                return calc_move(hid, action.y, action.x);
+            case Action::Type::BLOCK:
+                return calc_block(hid, action.mask);
+            case Action::Type::WAIT:
                 return '.';
             }
+            assert(false);
             return '.';
         }
 
-        string calc_moves() {
+        string calc_actions() {
+            // 各人の行動を決定する過程で制約が増える　blocked_tmp, human_count_tmp でその差分を記録する
             memcpy(blocked_tmp, blocked, sizeof(bool) * N * N);
             memcpy(human_count_tmp, human_count, sizeof(int) * N * N);
-            string moves(humans.size(), '.');
+
+            string actions(humans.size(), '.');
+
             for (int hid = 0; hid < humans.size(); hid++) {
-                moves[hid] = calc_move(hid);
+
+                char action = calc_action(hid);
+                auto [_, y, x] = humans[hid];
+
+                if (isupper(action)) { // move
+                    int d = c2d[action];
+                    human_count_tmp[y + dy[d]][x + dx[d]]++;
+                }
+                else if (islower(action)) { // block
+                    int d = c2d[action];
+                    blocked_tmp[y + dy[d]][x + dx[d]] = true;
+                }
+
+                actions[hid] = action;
             }
-            return moves;
+
+            return actions;
         }
 
-        void do_moves(const string& moves) {
+        void do_actions(const string& actions) {
             for (int hid = 0; hid < humans.size(); hid++) {
                 auto& [_, y, x] = humans[hid];
-                char c = moves[hid];
+                char c = actions[hid];
                 if (c == '.') continue;
                 if (isupper(c)) {
                     human_count[y][x]--;
@@ -429,92 +470,184 @@ namespace NSolver {
 
         void update_queue() {
             for (int hid = 0; hid < humans.size(); hid++) {
-                auto& cqu = cmd_queue[hid];
-                if (cqu.empty()) continue;
                 auto [_, y, x] = humans[hid];
-                auto& cmd = cqu.front();
-                auto type = cmd.type;
-                switch (type)
-                {
-                case Cmd::Type::MOVE:
-                {
-                    if (x == cmd.x && y == cmd.y) {
-                        cqu.pop_front();
+                auto& action_queue = action_queue_list[hid];
+                // 不要な操作を wipe
+                while (!action_queue.empty()) {
+                    bool updated = false;
+                    const auto& action = action_queue.front();
+                    auto type = action.type;
+                    switch (type)
+                    {
+                    case Action::Type::MOVE:
+                    {
+                        if (y == action.y && x == action.x) {
+                            action_queue.pop_front();
+                            updated = true;
+                        }
+                        break;
                     }
-                    break;
-                }
-                case Cmd::Type::BLOCK:
-                {
-                    int mask = cmd.mask;
-                    bool completed = true;
-                    for (int d = 0; d < 4; d++) if (mask >> d & 1) {
-                        int ny = y + dy[d], nx = x + dx[d];
-                        if (!is_inside(ny, nx)) continue;
-                        if (!blocked[ny][nx]) {
-                            completed = false;
-                            break;
+                    case Action::Type::BLOCK:
+                    {
+                        bool completed = true;
+                        for (int d = 0; d < 4; d++) if (action.mask >> d & 1) {
+                            int ny = y + dy[d], nx = x + dx[d];
+                            if (!is_inside(ny, nx)) continue;
+                            if (!blocked[ny][nx]) {
+                                completed = false;
+                                break;
+                            }
+                        }
+                        if (completed) {
+                            action_queue.pop_front();
+                            updated = true;
+                        }
+                        break;
+                    }
+                    case Action::Type::WAIT:
+                    {
+                        if (turn >= action.time) {
+                            action_queue.pop_front();
+                            updated = true;
                         }
                     }
-                    if (completed) cqu.pop_front();
-                    break;
-                }
-                case Cmd::Type::WAIT:
-                {
-                    cmd.w--;
-                    if (!cmd.w) {
-                        cqu.pop_front();
                     }
-                }
+                    if (!updated) break;
                 }
             }
         }
 
+        bool all_queue_empty() const {
+            bool empty = true;
+            for (const auto& q : action_queue_list) if (!q.empty()) {
+                empty = false;
+                break;
+            }
+            return empty;
+        }
+
+        int count_pets(const Rect& roi) const {
+            int count = 0;
+            for (int y = roi.y; y < roi.y + roi.height; y++) {
+                for (int x = roi.x; x < roi.x + roi.width; x++) {
+                    count += pet_count[y][x];
+                }
+            }
+            return count;
+        }
+
+        bool human_is_inside(const Human& h, const Rect& roi) const {
+            return roi.y <= h.y && h.y < roi.y + roi.height && roi.x <= h.x && h.x < roi.x + roi.width;
+        }
+
+        bool all_human_is_inside(const Rect& roi) const {
+            bool inside = true;
+            for (const auto& human : humans) if (!human_is_inside(human, roi)) {
+                inside = false;
+                break;
+            }
+            return inside;
+        }
+
         void solve() {
 
-            cmd_queue.resize(humans.size());
+            action_queue_list.resize(humans.size());
 
-            vector<Point> corner({ {0, 0}, {N - 1, 0}, {N - 1, N - 1}, {0, N - 1} });
-            for (int hid = 4; hid < humans.size(); hid++) {
-                auto [y, x] = corner[hid % 4];
-                cmd_queue[hid].push_back(Cmd::move(y, x));
-            }
-            cmd_queue[0].push_back(Cmd::move(0, 14));//r
-            cmd_queue[0].push_back(Cmd::wait(60));
-            for (int y = 0; y <= 14; y++) {
-                cmd_queue[0].push_back(Cmd::move(y, 14));
-                cmd_queue[0].push_back(Cmd::block(0b0001));
-            }
-            cmd_queue[1].push_back(Cmd::move(14, N - 1));//d
-            cmd_queue[1].push_back(Cmd::wait(60));
-            for (int x = N - 1; x >= 16; x--) {
-                cmd_queue[1].push_back(Cmd::move(14, x));
-                cmd_queue[1].push_back(Cmd::block(0b1000));
-            }
-            cmd_queue[2].push_back(Cmd::move(N - 1, 15));//l
-            cmd_queue[2].push_back(Cmd::wait(60));
-            for (int y = N - 1; y >= 15; y--) {
-                cmd_queue[2].push_back(Cmd::move(y, 15));
-                cmd_queue[2].push_back(Cmd::block(0b0100));
-            }
-            cmd_queue[3].push_back(Cmd::move(15, 0));//u
-            cmd_queue[3].push_back(Cmd::wait(60));
-            for (int x = 0; x < 14; x++) {
-                cmd_queue[3].push_back(Cmd::move(15, x));
-                cmd_queue[3].push_back(Cmd::block(0b0010));
+            vector<Point> dest({ {14,29},{0,14},{15,0},{29,15},{13,17},{12,17},{12,13},{12,12},{16,12},{17,12},{17,16} });
+
+            for (int hid = 0; hid < humans.size(); hid++) {
+                auto& action_queue = action_queue_list[hid];
+                auto [y1, x1] = dest[hid];
+                action_queue.push_back(Action::move(y1, x1));
             }
 
-            for (int turn = 0; turn < MAX_TURN; turn++) {
-                if (debug) {
-                    cerr << format("--- turn %d ---\n", turn);
-                }
-                auto moves = calc_moves();
-                dump(turn, moves);
-                if (debug) cerr << format("move %3d: %s\n", turn, moves.c_str());
-                do_moves(moves);
-                cout << moves << endl;
+            update_queue();
+            while (turn < MAX_TURN && !all_queue_empty()) {
+                auto actions = calc_actions();
+                do_actions(actions);
+                cout << actions << endl;
                 load();
                 update_queue();
+                turn++;
             }
+
+            vector<Point> dest2({ {14,16},{13,14},{15,13},{16,15} });
+
+            for (int hid = 0; hid < 4; hid++) {
+                auto& action_queue = action_queue_list[hid];
+                int y1 = humans[hid].y, x1 = humans[hid].x;
+                auto [y2, x2] = dest2[hid];
+                int d = -1;
+                if (x1 < x2) d = 0;
+                else if (y2 < y1) d = 1;
+                else if (x2 < x1) d = 2;
+                else d = 3;
+                int nd = (d + 1) & 3;
+                action_queue.push_back(Action::block(1 << nd));
+                while (y1 != y2 || x1 != x2) {
+                    y1 += dy[d]; x1 += dx[d];
+                    action_queue.push_back(Action::move(y1, x1));
+                    action_queue.push_back(Action::block(1 << nd));
+                }
+                y1 -= dy[d]; x1 -= dx[d];
+                action_queue.push_back(Action::move(y1, x1));
+            }
+
+            while (turn < MAX_TURN && !all_queue_empty()) {
+                auto actions = calc_actions();
+                do_actions(actions);
+                cout << actions << endl;
+                load();
+                update_queue();
+                turn++;
+            }
+
+            vector<Point> corners({ {0, 29}, {0, 0}, {N - 1, 0}, {N - 1, N - 1} });
+            vector<Rect> regions({ {0,15,15,15},{0,0,15,15},{15,0,15,15},{15,15,15,15} });
+
+            // 最も pet の少ない region に退避
+            int region_id = -1, min_pets = INT_MAX;
+            for (int i = 0; i < 4; i++) {
+                int npets = count_pets(regions[i]);
+                if (chmin(min_pets, npets)) {
+                    region_id = i;
+                }
+            }
+            //dump(turn, region_id, min_pets);
+
+            for (int hid = 0; hid < humans.size(); hid++) {
+                if (hid == region_id) continue;
+                auto& action_queue = action_queue_list[hid];
+                action_queue.push_back(Action::move(corners[region_id]));
+            }
+
+            while (turn < MAX_TURN && !all_human_is_inside(regions[region_id])) {
+                auto actions = calc_actions();
+                do_actions(actions);
+                cout << actions << endl;
+                load();
+                update_queue();
+                turn++;
+            }
+
+            {
+                int hid = region_id;
+                auto& action_queue = action_queue_list[hid];
+                auto [_, y, x] = humans[hid];
+                int d = (region_id + 2) & 3;
+                action_queue.push_back(Action::move(y + dy[d], x + dx[d]));
+                action_queue.push_back(Action::block(1 << d));
+            }
+
+            while (turn < MAX_TURN) {
+                auto actions = calc_actions();
+                do_actions(actions);
+                cout << actions << endl;
+                load();
+                update_queue();
+                turn++;
+            }
+
         }
 
     };
