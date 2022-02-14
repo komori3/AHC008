@@ -106,7 +106,7 @@ std::string stringify(const T& x) {
 
 /* dump */
 #ifdef _MSC_VER
-#define ENABLE_DUMP
+//#define ENABLE_DUMP
 #endif
 #ifdef ENABLE_DUMP
 #define DUMPOUT std::cerr
@@ -196,12 +196,12 @@ constexpr char HUMAN = 'H';
 
 namespace NSolver {
 
-    // pet P •C‚Æ‚·‚é
-    // ‰½‚à‚µ‚È‚¢ê‡‚ÌƒXƒRƒA‚Í s0 = 2^(-P)
-    // —Ìˆæ‚ğ 4 •ªŠ„‚µ‚½ê‡‚Ì•½‹ÏƒXƒRƒA‚Í s1 = 0.25 * 2^(-P/4) = 2^(-P/4 - 2)
+    // pet P åŒ¹ã¨ã™ã‚‹
+    // ä½•ã‚‚ã—ãªã„å ´åˆã®ã‚¹ã‚³ã‚¢ã¯ s0 = 2^(-P)
+    // é ˜åŸŸã‚’ 4 åˆ†å‰²ã—ãŸå ´åˆã®å¹³å‡ã‚¹ã‚³ã‚¢ã¯ s1 = 0.25 * 2^(-P/4) = 2^(-P/4 - 2)
     // s1 / s0 = 2^(P-P/4 - 2)
-    // P=10 ‚È‚ç 2^5.5 ~ 45 ”{
-    // P=20 ‚È‚ç 2^13 ~ 8192 ”{‚ÌƒXƒRƒA‘‰Á‚ªŒ©‚ß‚é
+    // P=10 ãªã‚‰ 2^5.5 ~ 45 å€
+    // P=20 ãªã‚‰ 2^13 ~ 8192 å€ã®ã‚¹ã‚³ã‚¢å¢—åŠ ãŒè¦‹è¾¼ã‚ã‚‹
 
     struct Pet {
         int id, y, x, t;
@@ -335,24 +335,25 @@ namespace NSolver {
 
         char calc_move(int hid, int gy, int gx) {
             static constexpr int inf = INT_MAX / 8;
-            // –Ú“I’n‚©‚ç‚Ì‹——£‚ğŒvZ
+            // ç›®çš„åœ°ã‹ã‚‰ã®è·é›¢ã‚’è¨ˆç®—
             static int dist[N][N];
             if (humans[hid].y == gy && humans[hid].x == gx) return '.';
             Fill(dist, inf);
             std::queue<Point> qu;
             qu.emplace(gy, gx);
+            // pet ã¯ç„¡è¦–ã—ã¦æœ€çŸ­è·¯ã‚’è¨ˆç®—
             dist[gy][gx] = 0;
             while (!qu.empty()) {
                 auto [y, x] = qu.front(); qu.pop();
                 for (int d = 0; d < 4; d++) {
                     int ny = y + dy[d], nx = x + dx[d];
-                    if (!is_inside(ny, nx) || blocked_tmp[ny][nx] || pet_count[ny][nx] || dist[ny][nx] != inf) continue;
+                    if (!is_inside(ny, nx) || blocked_tmp[ny][nx] || dist[ny][nx] != inf) continue;
                     dist[ny][nx] = dist[y][x] + 1;
                     qu.emplace(ny, nx);
                 }
             }
             auto [_, sy, sx] = humans[hid];
-            if (dist[sy][sx] == inf) return '.'; // ˆÚ“®•s‰Â
+            if (dist[sy][sx] == inf) return '.'; // ç§»å‹•ä¸å¯
             
             int min_dist = inf;
             vector<int> cands;
@@ -365,6 +366,7 @@ namespace NSolver {
                 }
                 cands.push_back(d);
             }
+            if (min_dist == inf) return '.';
             int d = cands[rnd.next_int(cands.size())];
             human_count_tmp[sy + dy[d]][sx + dx[d]]++;
             return d2C[d];
@@ -729,12 +731,12 @@ namespace NManual {
             }
             if (target && pet.y == target->y && pet.x == target->x) {
                 pet.target_id = -1;
-                target = nullptr; // “’BÏ‚İ
+                target = nullptr; // åˆ°é”æ¸ˆã¿
             }
             {
-                // ƒyƒbƒg‘¤‚©‚ç“’B‰Â”\‚ÈˆÊ’u‚ğƒ`ƒFƒbƒN
+                // ãƒšãƒƒãƒˆå´ã‹ã‚‰åˆ°é”å¯èƒ½ãªä½ç½®ã‚’ãƒã‚§ãƒƒã‚¯
                 using pii = std::pair<int, int>;
-                // “’B‰Â”\‚©H
+                // åˆ°é”å¯èƒ½ã‹ï¼Ÿ
                 Fill(dist, inf);
                 std::queue<pii> qu;
                 qu.emplace(pet.y, pet.x);
@@ -749,14 +751,14 @@ namespace NManual {
                     }
                 }
             }
-            // Œ»İ‚Ì target ‚Í“’B‰Â”\‚©H
+            // ç¾åœ¨ã® target ã¯åˆ°é”å¯èƒ½ã‹ï¼Ÿ
             if (target && dist[target->y][target->x] == inf) {
                 pet.target_id = -1;
                 target = nullptr;
             }
             if (!target) {
-                // target ‘I‘ğ
-                dist[pet.y][pet.x] = inf; // Œ»İˆÊ’u‚ÍŒó•â‚©‚çœŠO
+                // target é¸æŠ
+                dist[pet.y][pet.x] = inf; // ç¾åœ¨ä½ç½®ã¯å€™è£œã‹ã‚‰é™¤å¤–
                 vector<const Human*> cands;
                 for (const auto& human : humans) {
                     if (dist[human.y][human.x] != inf) {
@@ -764,7 +766,7 @@ namespace NManual {
                     }
                 }
                 if (cands.empty()) {
-                    // Œó•â‚È‚µ: Šî–{s“®
+                    // å€™è£œãªã—: åŸºæœ¬è¡Œå‹•
                     pet.target_id = -1;
                     do_default_move(pet);
                     return;
@@ -775,7 +777,7 @@ namespace NManual {
             assert(target);
             dump(target->id, target->y, target->x, pet.y, pet.x);
             {
-                // target ‘¤‚©‚ç bfs
+                // target å´ã‹ã‚‰ bfs
                 using pii = std::pair<int, int>;
                 Fill(dist, inf);
                 std::queue<pii> qu;
@@ -818,7 +820,7 @@ namespace NManual {
             assert(pet.type == 4);
 
             {
-                // Œ»İƒyƒbƒgˆÊ’u‚©‚ç“’B‰Â”\‚È“_‚ğƒ`ƒFƒbƒN
+                // ç¾åœ¨ãƒšãƒƒãƒˆä½ç½®ã‹ã‚‰åˆ°é”å¯èƒ½ãªç‚¹ã‚’ãƒã‚§ãƒƒã‚¯
                 Fill(dist, inf);
                 std::queue<pii> qu;
                 dist[pet.y][pet.x] = 0;
@@ -857,7 +859,7 @@ namespace NManual {
             }
 
             {
-                // target ‘¤‚©‚ç bfs
+                // target å´ã‹ã‚‰ bfs
                 using pii = std::pair<int, int>;
                 Fill(dist, inf);
                 std::queue<pii> qu;
