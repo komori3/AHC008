@@ -173,6 +173,7 @@ template<typename A, size_t N, typename T> inline void Fill(A(&array)[N], const 
     std::fill((T*)array, (T*)(array + N), val);
 }
 
+template<typename T, typename ...Args> auto make_vector(T x, int arg, Args ...args) { if constexpr (sizeof...(args) == 0)return std::vector<T>(arg, x); else return std::vector(arg, make_vector<T>(x, args...)); }
 template<typename T> bool chmax(T& a, const T& b) { if (a < b) { a = b; return true; } return false; }
 template<typename T> bool chmin(T& a, const T& b) { if (a > b) { a = b; return true; } return false; }
 
@@ -196,21 +197,9 @@ constexpr char HUMAN = 'H';
 
 namespace NSolver {
 
-    // pet P 匹とする
-    // 何もしない場合のスコアは s0 = 2^(-P)
-    // 領域を 4 分割した場合の平均スコアは s1 = 0.25 * 2^(-P/4) = 2^(-P/4 - 2)
-    // s1 / s0 = 2^(P-P/4 - 2)
-    // P=10 なら 2^5.5 ~ 45 倍
-    // P=20 なら 2^13 ~ 8192 倍のスコア増加が見込める
-
     struct Pet {
         int id, y, x, t;
         Pet(int id = -1, int y = -1, int x = -1, int t = -1) : id(id), y(y), x(x), t(t) {}
-    };
-
-    struct Human {
-        int id, y, x;
-        Human(int id = -1, int y = -1, int x = -1) : id(id), y(y), x(x) {}
     };
 
     struct Point {
@@ -219,6 +208,12 @@ namespace NSolver {
         string stringify() const {
             return format("(%d,%d)", y, x);
         }
+    };
+
+    struct Human {
+        int id, y, x;
+        Human(int id = -1, int y = -1, int x = -1) : id(id), y(y), x(x) {}
+        Point get_coord() const { return { y, x }; }
     };
 
     struct Rect {
@@ -263,6 +258,12 @@ namespace NSolver {
             }
             return "";
         }
+    };
+
+    struct Task {
+        int id;
+        int est_cost; // 全ての行動を終えるまでの予定時間
+        vector<Action> actions; // 行動列
     };
 
     struct State {
@@ -395,7 +396,7 @@ namespace NSolver {
 
         // 柵の設置
         char calc_block(int hid, int mask) {
-            auto [_, y, x] = humans[hid];
+            auto [y, x] = humans[hid].get_coord();
             for (int d = 0; d < 4; d++) if (mask >> d & 1) {
                 if (can_place(y + dy[d], x + dx[d])) {
                     return d2c[d];
@@ -406,7 +407,7 @@ namespace NSolver {
 
         char calc_action(int hid) {
             auto& action_queue = action_queue_list[hid];
-            auto [_, y, x] = humans[hid];
+            auto [y, x] = humans[hid].get_coord();
             
             if (action_queue.empty()) return '.';
             auto action = action_queue.front();
@@ -434,7 +435,7 @@ namespace NSolver {
             for (int hid = 0; hid < humans.size(); hid++) {
 
                 char action = calc_action(hid);
-                auto [_, y, x] = humans[hid];
+                auto [y, x] = humans[hid].get_coord();
 
                 if (isupper(action)) { // move
                     int d = c2d[action];
@@ -453,7 +454,8 @@ namespace NSolver {
 
         void do_actions(const string& actions) {
             for (int hid = 0; hid < humans.size(); hid++) {
-                auto& [_, y, x] = humans[hid];
+                int& y = humans[hid].y;
+                int& x = humans[hid].x;
                 char c = actions[hid];
                 if (c == '.') continue;
                 if (isupper(c)) {
@@ -470,8 +472,8 @@ namespace NSolver {
 
         void update_queue() {
             for (int hid = 0; hid < humans.size(); hid++) {
-                auto [_, y, x] = humans[hid];
                 auto& action_queue = action_queue_list[hid];
+                auto [y, x] = humans[hid].get_coord();
                 // 不要な操作を wipe
                 while (!action_queue.empty()) {
                     bool updated = false;
@@ -549,96 +551,151 @@ namespace NSolver {
             return inside;
         }
 
+        static vector<Task> create_task_list() {
+
+            // TODO: 人間の衝突をどうするか…
+            
+            auto board = make_vector('.', N, N);
+            for (int s = 3; s < 57; s += 3) {
+                for (int y = 0; y < N; y++) {
+                    for (int x = 0; x < N; x++) {
+                        if (y + x == s) {
+                            board[y][x] = '#';
+                        }
+                    }
+                }
+            }
+
+            {
+                int moved = 0, y = 0, x = 0;
+                vector<Point> mv({ {2,1},{1,2} });
+                while (true) {
+                    auto m = mv[moved % 2];
+                    y += m.y; x += m.x;
+                    if (y + x > 54) break;
+                    board[y][x] = 'o';
+                    moved++;
+                }
+            }
+
+            vector<Task> task_list;
+
+            for (int id = 0; id <= 4; id++) {
+                Task task;
+                task.id = id;
+                task.est_cost = 0;
+
+                int offset = id;
+
+                auto& actions = task.actions;
+                int& cost = task.est_cost;
+                int y = offset * 6 + 5, x = 0;
+                actions.push_back(Action::move(y, x)); // 最初の移動はコストに考慮しない
+                for (int k = 0; k <= offset * 3; k++) {
+                    actions.push_back(Action::block(1 << 3)); cost++;
+                    y--;
+                    actions.push_back(Action::move(y, x)); cost++;
+                    actions.push_back(Action::block(1 << 1)); cost++;
+                    x++;
+                    actions.push_back(Action::move(y, x)); cost++;
+                }
+                actions.push_back(Action::block((1 << 0) | (1 << 3))); cost += 2;
+
+                dump(id, cost);
+                task_list.push_back(task);
+            }
+
+            for (int id = 5; id <= 9; id++) {
+                Task task;
+                task.id = id;
+                task.est_cost = 0;
+
+                int offset = id - 5;
+
+                auto& actions = task.actions;
+                int& cost = task.est_cost;
+                int y = 0, x = offset * 6 + 5;
+                actions.push_back(Action::move(y, x)); // 最初の移動はコストに考慮しない
+                for (int k = 0; k <= offset * 3 + 1; k++) {
+                    actions.push_back(Action::block(1 << 0)); cost++;
+                    x--;
+                    actions.push_back(Action::move(y, x)); cost++;
+                    actions.push_back(Action::block(1 << 2)); cost++;
+                    y++;
+                    actions.push_back(Action::move(y, x)); cost++;
+                }
+                actions.push_back(Action::block(1 << 0)); cost++;
+
+                dump(id, cost);
+                task_list.push_back(task);
+            }
+
+            for (int id = 10; id <= 13; id++) {
+                Task task;
+                task.id = id;
+                task.est_cost = 0;
+
+                int offset = id - 10;
+
+                auto& actions = task.actions;
+                int& cost = task.est_cost;
+                int y = 29, x = offset * 6 + 5;
+                actions.push_back(Action::move(y, x)); // 最初の移動はコストに考慮しない
+                for (int k = 0; k <= (3 - offset) * 3 + 1; k++) {
+                    actions.push_back(Action::block(1 << 2)); cost++;
+                    x++;
+                    actions.push_back(Action::move(y, x)); cost++;
+                    actions.push_back(Action::block(1 << 0)); cost++;
+                    y--;
+                    actions.push_back(Action::move(y, x)); cost++;
+                }
+                actions.push_back(Action::block(1 << 2)); cost++;
+
+                dump(id, cost);
+                task_list.push_back(task);
+            }
+
+            for (int id = 14; id <= 17; id++) {
+                Task task;
+                task.id = id;
+                task.est_cost = 0;
+
+                int offset = id - 14;
+
+                auto& actions = task.actions;
+                int& cost = task.est_cost;
+                int y = offset * 6 + 5, x = 29;
+                actions.push_back(Action::move(y, x)); // 最初の移動はコストに考慮しない
+                for (int k = 0; k <= (3 - offset) * 3 + 1; k++) {
+                    actions.push_back(Action::block(1 << 1)); cost++;
+                    y++;
+                    actions.push_back(Action::move(y, x)); cost++;
+                    actions.push_back(Action::block(1 << 3)); cost++;
+                    x--;
+                    actions.push_back(Action::move(y, x)); cost++;
+                }
+                actions.push_back(Action::block((1 << 1) | (1 << 2))); cost += 2;
+
+                dump(id, cost);
+                task_list.push_back(task);
+            }
+
+            return task_list;
+        }
+
         void solve() {
 
             action_queue_list.resize(humans.size());
 
-            vector<Point> dest({ {14,29},{0,14},{15,0},{29,15},{13,17},{12,17},{12,13},{12,12},{16,12},{17,12},{17,16} });
+            auto tasks = create_task_list();
 
-            for (int hid = 0; hid < humans.size(); hid++) {
-                auto& action_queue = action_queue_list[hid];
-                auto [y1, x1] = dest[hid];
-                action_queue.push_back(Action::move(y1, x1));
+            for (int i = 0; i < tasks.size(); i++) {
+                auto& qu = action_queue_list[i % humans.size()];
+                auto& acts = tasks[i].actions;
+                std::copy(acts.begin(), acts.end(), std::back_inserter(qu));
             }
 
             update_queue();
-            while (turn < MAX_TURN && !all_queue_empty()) {
-                auto actions = calc_actions();
-                do_actions(actions);
-                cout << actions << endl;
-                load();
-                update_queue();
-                turn++;
-            }
-
-            vector<Point> dest2({ {14,16},{13,14},{15,13},{16,15} });
-
-            for (int hid = 0; hid < 4; hid++) {
-                auto& action_queue = action_queue_list[hid];
-                int y1 = humans[hid].y, x1 = humans[hid].x;
-                auto [y2, x2] = dest2[hid];
-                int d = -1;
-                if (x1 < x2) d = 0;
-                else if (y2 < y1) d = 1;
-                else if (x2 < x1) d = 2;
-                else d = 3;
-                int nd = (d + 1) & 3;
-                action_queue.push_back(Action::block(1 << nd));
-                while (y1 != y2 || x1 != x2) {
-                    y1 += dy[d]; x1 += dx[d];
-                    action_queue.push_back(Action::move(y1, x1));
-                    action_queue.push_back(Action::block(1 << nd));
-                }
-                y1 -= dy[d]; x1 -= dx[d];
-                action_queue.push_back(Action::move(y1, x1));
-            }
-
-            while (turn < MAX_TURN && !all_queue_empty()) {
-                auto actions = calc_actions();
-                do_actions(actions);
-                cout << actions << endl;
-                load();
-                update_queue();
-                turn++;
-            }
-
-            vector<Point> corners({ {0, 29}, {0, 0}, {N - 1, 0}, {N - 1, N - 1} });
-            vector<Rect> regions({ {0,15,15,15},{0,0,15,15},{15,0,15,15},{15,15,15,15} });
-
-            // 最も pet の少ない region に退避
-            int region_id = -1, min_pets = INT_MAX;
-            for (int i = 0; i < 4; i++) {
-                int npets = count_pets(regions[i]);
-                if (chmin(min_pets, npets)) {
-                    region_id = i;
-                }
-            }
-            //dump(turn, region_id, min_pets);
-
-            for (int hid = 0; hid < humans.size(); hid++) {
-                if (hid == region_id) continue;
-                auto& action_queue = action_queue_list[hid];
-                action_queue.push_back(Action::move(corners[region_id]));
-            }
-
-            while (turn < MAX_TURN && !all_human_is_inside(regions[region_id])) {
-                auto actions = calc_actions();
-                do_actions(actions);
-                cout << actions << endl;
-                load();
-                update_queue();
-                turn++;
-            }
-
-            {
-                int hid = region_id;
-                auto& action_queue = action_queue_list[hid];
-                auto [_, y, x] = humans[hid];
-                int d = (region_id + 2) & 3;
-                action_queue.push_back(Action::move(y + dy[d], x + dx[d]));
-                action_queue.push_back(Action::block(1 << d));
-            }
-
             while (turn < MAX_TURN) {
                 auto actions = calc_actions();
                 do_actions(actions);
@@ -1079,7 +1136,6 @@ int main() {
     //state.play();
 
     NSolver::State state(cin, cout);
-
     state.solve();
 
     return 0;
