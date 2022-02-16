@@ -106,7 +106,7 @@ std::string stringify(const T& x) {
 
 /* dump */
 #ifdef _MSC_VER
-#define ENABLE_DUMP
+//#define ENABLE_DUMP
 #endif
 #ifdef ENABLE_DUMP
 #define DUMPOUT std::cerr
@@ -182,6 +182,48 @@ using std::cin, std::cout, std::cerr, std::endl;
 
 
 
+struct UnionFind {
+    vector<int> data;
+
+    UnionFind() = default;
+
+    explicit UnionFind(size_t sz) : data(sz, -1) {}
+
+    bool unite(int x, int y) {
+        x = find(x), y = find(y);
+        if (x == y) return false;
+        if (data[x] > data[y]) std::swap(x, y);
+        data[x] += data[y];
+        data[y] = x;
+        return true;
+    }
+
+    int find(int k) {
+        if (data[k] < 0) return (k);
+        return data[k] = find(data[k]);
+    }
+
+    int size(int k) {
+        return -data[find(k)];
+    }
+
+    bool same(int x, int y) {
+        return find(x) == find(y);
+    }
+
+    vector<vector<int>> groups() {
+        int n = (int)data.size();
+        vector< vector< int > > ret(n);
+        for (int i = 0; i < n; i++) {
+            ret[find(i)].emplace_back(i);
+        }
+        ret.erase(remove_if(begin(ret), end(ret), [&](const vector< int >& v) {
+            return v.empty();
+            }), ret.end());
+        return ret;
+    }
+};
+
 constexpr int N = 30;
 constexpr int MAX_TURN = 300;
 constexpr int dy[] = { 0, -1, 0, 1 };
@@ -192,36 +234,16 @@ int c2d[256];
 constexpr char BLOCK = '#';
 constexpr char EMPTY = '.';
 constexpr char HUMAN = 'H';
-
+constexpr int inf = INT_MAX / 8;
 
 
 namespace NSolver {
-
-    struct Pet {
-        int id, y, x, t;
-        Pet(int id = -1, int y = -1, int x = -1, int t = -1) : id(id), y(y), x(x), t(t) {}
-    };
 
     struct Point {
         int y, x;
         Point(int y = -1, int x = -1) : y(y), x(x) {}
         string stringify() const {
-            return format("(%d,%d)", y, x);
-        }
-    };
-
-    struct Human {
-        int id, y, x;
-        Human(int id = -1, int y = -1, int x = -1) : id(id), y(y), x(x) {}
-        Point get_coord() const { return { y, x }; }
-    };
-
-    struct Rect {
-        int y, x, height, width;
-        Rect(int y = -1, int x = -1, int height = -1, int width = -1)
-            : y(y), x(x), height(height), width(width) {}
-        string stringify() const {
-            return format("(%d,%d,%d,%d)", y, x, height, width);
+            return format("{%d,%d}", y, x);
         }
     };
 
@@ -260,10 +282,43 @@ namespace NSolver {
         }
     };
 
+    struct Pet {
+        int id, y, x, t;
+        Pet(int id = -1, int y = -1, int x = -1, int t = -1) : id(id), y(y), x(x), t(t) {}
+        Point get_coord() const { return { y, x }; }
+    };
+
+    struct Human {
+        int id, y, x;
+        std::deque<Action> action_queue;
+        Human(int id = -1, int y = -1, int x = -1) : id(id), y(y), x(x) {}
+        Point get_coord() const { return { y, x }; }
+    };
+
+    struct Rect {
+        int y, x, height, width;
+        Rect(int y = -1, int x = -1, int height = -1, int width = -1)
+            : y(y), x(x), height(height), width(width) {}
+        string stringify() const {
+            return format("(%d,%d,%d,%d)", y, x, height, width);
+        }
+    };
+
     struct Task {
         int id;
         int est_cost; // 全ての行動を終えるまでの予定時間
         vector<Action> actions; // 行動列
+        bool taken = false;
+    };
+
+    struct TrapTask {
+        int id;
+        // 0~N-4: pet, N-2: block, N-3: human
+        // 建設終了チェック
+        // -4->-3
+        // -3->-2
+        vector<Point> area;
+        int taken = -1; // human id
     };
 
     struct State {
@@ -275,8 +330,6 @@ namespace NSolver {
 
         vector<Pet> pets;
         vector<Human> humans;
-
-        vector<std::deque<Action>> action_queue_list;
 
         bool blocked[N][N];
         int human_count[N][N];
@@ -347,11 +400,9 @@ namespace NSolver {
 
         // 人間 hid が (gy, gx) に最短経路で移動するための移動方向（候補複数ならランダム）
         char calc_move(int hid, int gy, int gx) {
-
-            static constexpr int inf = INT_MAX / 8;
             static int dist[N][N];
 
-            auto [_, sy, sx] = humans[hid];
+            auto [sy, sx] = humans[hid].get_coord();
             assert(sy != gy || sx != gx);
 
             // pet, human は無視して目的地からの距離を計算
@@ -405,9 +456,67 @@ namespace NSolver {
             return '.';
         }
 
+        // (hy, hx) にいる人間がマス (by, bx) に柵を置いた時、ペットを面積 thresh 以下の領域に収容できるか？
+        // 人間が thresh 以下の領域に入るのは許容しない
+        bool can_make_prison(int hy, int hx, int by, int bx, int thresh) {
+            if (!can_place(by, bx)) return false;
+            blocked_tmp[by][bx] = true;
+
+            UnionFind tree(N * N);
+            // yoko
+            for (int y = 0; y < N; y++) {
+                for (int x = 0; x < N - 1; x++) {
+                    if (blocked_tmp[y][x] || blocked_tmp[y][x + 1]) continue;
+                    tree.unite(y * N + x, y * N + x + 1);
+                }
+            }
+            // tate
+            for (int y = 0; y < N - 1; y++) {
+                for (int x = 0; x < N; x++) {
+                    if (blocked_tmp[y][x] || blocked_tmp[y + 1][x]) continue;
+                    tree.unite(y * N + x, (y + 1) * N + x);
+                }
+            }
+            int hpos = hy * N + hx;
+            if (tree.size(hpos) <= thresh) {
+                // 人間が狭い領域に入ってしまう
+                blocked_tmp[by][bx] = false;
+                return false;
+            }
+
+            for (int d = 0; d < 4; d++) {
+                int nby = by + dy[d], nbx = bx + dx[d]; // block の 4-neighbor
+                if (!is_inside(nby, nbx) || blocked_tmp[nby][nbx]) continue;
+                int nbpos = nby * N + nbx;
+                int area = tree.size(nbpos);
+                if (area > thresh) continue;
+                int nbid = tree.find(nbpos);
+                // pet
+                for (auto [pid, py, px, pt] : pets) {
+                    int ppos = py * N + px;
+                    if (tree.find(ppos) == nbid) {
+                        // dump("trap!", turn, pid);
+                        blocked_tmp[by][bx] = false;
+                        return true;
+                    }
+                }
+            }
+
+            blocked_tmp[by][bx] = false;
+            return false;
+        }
+
         char calc_action(int hid) {
-            auto& action_queue = action_queue_list[hid];
+            auto& action_queue = humans[hid].action_queue;
             auto [y, x] = humans[hid].get_coord();
+
+            // 幽閉可能ならする
+            for (int d = 0; d < 4; d++) {
+                int by = y + dy[d], bx = x + dx[d];
+                if (can_make_prison(y, x, by, bx, 40)) {
+                    return d2c[d];
+                }
+            }
             
             if (action_queue.empty()) return '.';
             auto action = action_queue.front();
@@ -472,7 +581,7 @@ namespace NSolver {
 
         void update_queue() {
             for (int hid = 0; hid < humans.size(); hid++) {
-                auto& action_queue = action_queue_list[hid];
+                auto& action_queue = humans[hid].action_queue;
                 auto [y, x] = humans[hid].get_coord();
                 // 不要な操作を wipe
                 while (!action_queue.empty()) {
@@ -520,12 +629,8 @@ namespace NSolver {
         }
 
         bool all_queue_empty() const {
-            bool empty = true;
-            for (const auto& q : action_queue_list) if (!q.empty()) {
-                empty = false;
-                break;
-            }
-            return empty;
+            for (const auto& human : humans) if (!human.action_queue.empty()) return false;
+            return true;
         }
 
         int count_pets(const Rect& roi) const {
@@ -601,7 +706,6 @@ namespace NSolver {
                 }
                 actions.push_back(Action::block((1 << 0) | (1 << 3))); cost += 2;
 
-                dump(id, cost);
                 task_list.push_back(task);
             }
 
@@ -626,7 +730,6 @@ namespace NSolver {
                 }
                 actions.push_back(Action::block(1 << 0)); cost++;
 
-                dump(id, cost);
                 task_list.push_back(task);
             }
 
@@ -651,7 +754,6 @@ namespace NSolver {
                 }
                 actions.push_back(Action::block(1 << 2)); cost++;
 
-                dump(id, cost);
                 task_list.push_back(task);
             }
 
@@ -676,25 +778,191 @@ namespace NSolver {
                 }
                 actions.push_back(Action::block((1 << 1) | (1 << 2))); cost += 2;
 
-                dump(id, cost);
                 task_list.push_back(task);
             }
 
             return task_list;
         }
 
-        void solve() {
-
-            action_queue_list.resize(humans.size());
-
-            auto tasks = create_task_list();
-
-            for (int i = 0; i < tasks.size(); i++) {
-                auto& qu = action_queue_list[i % humans.size()];
-                auto& acts = tasks[i].actions;
-                std::copy(acts.begin(), acts.end(), std::back_inserter(qu));
+        static vector<TrapTask> create_traptask_list() {
+            
+            int id = 0, npoints = 5;
+            vector<TrapTask> tasks;
+            for (int sy = 5; sy <= 29; sy += 3) {
+                TrapTask task;
+                task.id = id++;
+                int y = sy, x = 0, np = 0;
+                while (true) {
+                    task.area.emplace_back(y--, x); np++;
+                    if (np == npoints) break;
+                    task.area.emplace_back(y, x++); np++;
+                    if (np == npoints) break;
+                }
+                tasks.push_back(task);
+                npoints += 3;
             }
 
+            npoints = 27;
+            for (int sx = 2; sx <= 23; sx += 3) {
+                TrapTask task;
+                task.id = id++;
+                int y = 29, x = sx, np = 0;
+                while (true) {
+                    task.area.emplace_back(y, x++); np++;
+                    if (np == npoints) break;
+                    task.area.emplace_back(y--, x); np++;
+                    if (np == npoints) break;
+                }
+                tasks.push_back(task);
+                npoints -= 3;
+            }
+
+            npoints = 6;
+            for (int sx = 5; sx <= 29; sx += 3) {
+                TrapTask task;
+                task.id = id++;
+                int y = 0, x = sx, np = 0;
+                while (true) {
+                    task.area.emplace_back(y, x--); np++;
+                    if (np == npoints) break;
+                    task.area.emplace_back(y++, x); np++;
+                    if (np == npoints) break;
+                }
+                tasks.push_back(task);
+                npoints += 3;
+            }
+
+            npoints = 28;
+            for (int sy = 2; sy <= 23; sy += 3) {
+                TrapTask task;
+                task.id = id++;
+                int y = sy, x = 29, np = 0;
+                while (true) {
+                    task.area.emplace_back(y++, x); np++;
+                    if (np == npoints) break;
+                    task.area.emplace_back(y, x--); np++;
+                    if (np == npoints) break;
+                }
+                tasks.push_back(task);
+                npoints -= 3;
+            }
+
+            return tasks;
+        }
+
+        int calc_dist(int sy, int sx, int gy, int gx) const {
+            static int dist[N][N];
+            Fill(dist, inf);
+            std::queue<Point> qu;
+            qu.emplace(sy, sx);
+            dist[sy][sx] = 0;
+            while (!qu.empty()) {
+                auto [y, x] = qu.front(); qu.pop();
+                for (int d = 0; d < 4; d++) {
+                    int ny = y + dy[d], nx = x + dx[d];
+                    if (!is_inside(ny, nx) || blocked[ny][nx] || dist[ny][nx] != inf) continue;
+                    dist[ny][nx] = dist[y][x] + 1;
+                    if (ny == gy && nx == gx) return dist[ny][nx];
+                    qu.emplace(ny, nx);
+                }
+            }
+            return inf;
+        }
+
+        int get_dir(const Point& p1, const Point& p2) const {
+            if (p1.y == p2.y) return p1.x < p2.x ? 0 : 2;
+            assert(p1.x == p2.x);
+            return p1.y < p2.y ? 3 : 1;
+        }
+
+        bool is_valid_traptask(const TrapTask& task) const {
+            const auto& area = task.area;
+            Point bp[2];
+            for (int i = 0; i < 2; i++) {
+                auto p1 = area[area.size() - 5 + i], p2 = area[area.size() - 4 + i];
+                int d = get_dir(p1, p2);
+                bp[i] = Point(p2.y + dy[d], p2.x + dx[d]);
+            }
+            if (!blocked[bp[0].y][bp[0].x] || !blocked[bp[1].y][bp[1].x]) return false;
+            for (int i = 0; i < area.size() - 3; i++) {
+                auto p = area[i];
+                if (pet_count[p.y][p.x]) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        void solve() {
+
+            vector<bool> base_task_finished(humans.size(), false);
+
+            auto tasks = create_task_list();
+            auto traptasks = create_traptask_list();
+
+            auto all_tasks_taken = [&]() {
+                for (const auto& task : tasks) if (!task.taken) return false;
+                return true;
+            };
+
+            auto assign_task = [&]() {
+                if (all_tasks_taken()) {
+                    // cancel traptask
+                    for (auto& task : traptasks) {
+                        if (task.taken != -1 && !is_valid_traptask(task)) {
+                            dump("cancel", turn, task.taken);
+                            humans[task.taken].action_queue.clear();
+                            task.taken = -1;
+                        }
+                    }
+                    // take traptask
+                    for (auto& task : traptasks) {
+                        if (task.taken == -1 && is_valid_traptask(task)) {
+                            // 最も近いフリーの人間を向かわせる
+                            const auto& area = task.area;
+                            int min_dist = inf, hid = -1;
+                            for (const auto& human : humans) {
+                                auto [sy, sx] = human.get_coord();
+                                auto [gy, gx] = area.back();
+                                int dist = calc_dist(sy, sx, gy, gx);
+                                if (chmin(min_dist, dist)) {
+                                    hid = human.id;
+                                }
+                            }
+                            if (hid != -1) {
+                                auto& human = humans[hid];
+                                task.taken = hid;
+                                auto hp = area.back();
+                                auto bp = area[area.size() - 2];
+                                int d = get_dir(hp, bp);
+                                human.action_queue.push_back(Action::move(hp));
+                                human.action_queue.push_back(Action::block(1 << d));   
+                            }
+                        }
+                    }
+                    return;
+                }
+                for (auto& human : humans) if (human.action_queue.empty()) {
+                    int min_dist = inf, selected_task_id = -1;
+                    auto [sy, sx] = human.get_coord();
+                    for (const auto& task : tasks) if (!task.taken) {
+                        int gy = task.actions.front().y, gx = task.actions.front().x;
+                        int dist = calc_dist(sy, sx, gy, gx);
+                        if (chmin(min_dist, dist)) {
+                            selected_task_id = task.id;
+                        }
+                    }
+                    if (selected_task_id != -1) {
+                        auto& task = tasks[selected_task_id];
+                        std::copy(task.actions.begin(), task.actions.end(), std::back_inserter(human.action_queue));
+                        task.taken = true;
+                        //dump(human.id, task.id, min_dist + task.est_cost);
+                    }
+                }
+            };
+
+            assign_task();
             update_queue();
             while (turn < MAX_TURN) {
                 auto actions = calc_actions();
@@ -702,6 +970,7 @@ namespace NSolver {
                 cout << actions << endl;
                 load();
                 update_queue();
+                assign_task();
                 turn++;
             }
 
