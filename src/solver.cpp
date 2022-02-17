@@ -224,28 +224,34 @@ struct UnionFind {
     }
 };
 
-constexpr int N = 30;
+
 constexpr int MAX_TURN = 300;
-constexpr int dy[] = { 0, -1, 0, 1 };
-constexpr int dx[] = { 1, 0, -1, 0 };
 constexpr char d2C[5] = "RULD";
 constexpr char d2c[5] = "ruld";
 int c2d[256];
-constexpr char BLOCK = '#';
-constexpr char EMPTY = '.';
-constexpr char HUMAN = 'H';
 constexpr int inf = INT_MAX / 8;
 
-
 namespace NSolver {
+
+    constexpr int N = 30;
+    constexpr int dy[] = { 0, -1, 0, 1 };
+    constexpr int dx[] = { 1, 0, -1, 0 };
 
     struct Point {
         int y, x;
         Point(int y = -1, int x = -1) : y(y), x(x) {}
+        Point operator-() const { return Point(-y, -x); }
+        Point& operator+=(const Point& p) { y += p.y; x += p.x; return *this; }
+        Point& operator-=(const Point& p) { y -= p.y; x -= p.x; return *this; }
+        Point& operator*=(int k) { y *= k; x *= k; return *this; }
         string stringify() const {
             return format("{%d,%d}", y, x);
         }
     };
+    Point operator+(const Point& p1, const Point& p2) { return Point(p1) += p2; }
+    Point operator-(const Point& p1, const Point& p2) { return Point(p1) -= p2; }
+    Point operator*(int k, const Point& p1) { return Point(p1) *= k; }
+    const Point dir[4] = { {0, 1}, {-1, 0}, {0, -1}, {1, 0} };
 
     struct Action {
         enum struct Type {
@@ -293,15 +299,6 @@ namespace NSolver {
         std::deque<Action> action_queue;
         Human(int id = -1, int y = -1, int x = -1) : id(id), y(y), x(x) {}
         Point get_coord() const { return { y, x }; }
-    };
-
-    struct Rect {
-        int y, x, height, width;
-        Rect(int y = -1, int x = -1, int height = -1, int width = -1)
-            : y(y), x(x), height(height), width(width) {}
-        string stringify() const {
-            return format("(%d,%d,%d,%d)", y, x, height, width);
-        }
     };
 
     struct Task {
@@ -381,9 +378,8 @@ namespace NSolver {
             return pet_moves;
         }
 
-        inline bool is_inside(int y, int x) const {
-            return 0 <= y && y < N && 0 <= x && x < N;
-        }
+        inline bool is_inside(int y, int x) const { return 0 <= y && y < N && 0 <= x && x < N; }
+        inline bool is_inside(const Point& p) const { return is_inside(p.y, p.x); }
 
         // (y, x) に柵を設置可能か？
         bool can_place(int y, int x) const {
@@ -631,29 +627,6 @@ namespace NSolver {
         bool all_queue_empty() const {
             for (const auto& human : humans) if (!human.action_queue.empty()) return false;
             return true;
-        }
-
-        int count_pets(const Rect& roi) const {
-            int count = 0;
-            for (int y = roi.y; y < roi.y + roi.height; y++) {
-                for (int x = roi.x; x < roi.x + roi.width; x++) {
-                    count += pet_count[y][x];
-                }
-            }
-            return count;
-        }
-
-        bool human_is_inside(const Human& h, const Rect& roi) const {
-            return roi.y <= h.y && h.y < roi.y + roi.height && roi.x <= h.x && h.x < roi.x + roi.width;
-        }
-
-        bool all_human_is_inside(const Rect& roi) const {
-            bool inside = true;
-            for (const auto& human : humans) if (!human_is_inside(human, roi)) {
-                inside = false;
-                break;
-            }
-            return inside;
         }
 
         static vector<Task> create_task_list() {
@@ -980,9 +953,579 @@ namespace NSolver {
 
 }
 
+namespace NSolver2 {
+    // 座標は 30x30 に境界を追加した 32x32 を 1dim に直した [0,1024) で表す
+
+    using ::operator<<;
+
+    constexpr int N = 32;
+    constexpr int NN = N * N;
+    constexpr int dir[] = { 1, -N, -1, N };
+
+    struct coord {
+        int idx;
+        coord(int idx = 0) : idx(idx) {}
+        coord(int y, int x) : idx(x | y << 5) {}
+        inline int y() const { return idx >> 5; }
+        inline int x() const { return idx & 0b11111; }
+        inline std::pair<int, int> unpack() const { return { y(), x() }; }
+        inline int operator[] (int i) const { return i ? x() : y(); }
+        inline coord& move(int d) { idx += dir[d]; return *this; }
+        inline coord& move(char c) { return move(c2d[tolower(c)]); }
+        inline coord& move(const string& s) { for (char c : s) move(c); return *this; }
+        inline coord moved(int d) const { return coord(*this).move(d); }
+        inline coord moved(char c) const { return moved(c2d[tolower(c)]); }
+        bool operator==(const coord& c) { return idx == c.idx; }
+        string stringify() const { return format("(%d,%d)", y(), x()); }
+        friend std::istream& operator>>(std::istream& in, coord& pos) {
+            int y, x;
+            in >> y >> x;
+            pos = coord(y, x);
+            return in;
+        }
+    };
+
+    struct Action {
+
+        enum struct Type { MOVE, BLOCK, WAIT };
+
+        static Action move(coord crd, int task_id = -1) { return Action(Type::MOVE, crd.idx, task_id); }
+        static Action block(int dir, int task_id = -1) { return Action(Type::BLOCK, dir, task_id); }
+        static Action wait(int until) { return Action(Type::WAIT, until, -1); }
+
+        inline Type get_type() const { return type; }
+        inline coord get_coord() const { return coord(data); }
+        inline int get_dir() const { return data; }
+        inline int get_time() const { return data; }
+        inline int get_tid() const { return task_id; }
+
+        string stringify() const {
+            string taskstr;
+            if (task_id != -1) taskstr += format("Task%d: ", task_id);
+            switch (type) {
+            case Type::MOVE:  return taskstr + "move to " + coord(data).stringify();
+            case Type::BLOCK: return taskstr + "block " + d2C[data];
+            case Type::WAIT:  return taskstr + "wait until " + std::to_string(data);
+            }
+            return "";
+        }
+
+    private:
+
+        Type type;
+        int data;
+        int task_id;
+
+        Action(Type type, int data, int task_id) : type(type), data(data), task_id(task_id) {}
+
+    };
+
+    struct Human;
+
+    struct Task {
+        enum struct Type {
+            SEQUENTIAL, // action 列を逐次的に実行するタスク
+            CAPTURE     // ペット捕獲タスク
+        };
+        int id;
+        Type type;
+        Human* assignee;
+        bool is_cancelable; // sequential は不可
+        bool is_completed;
+        virtual bool proceed() { return false; }
+    };
+
+    struct SequentialTask : Task {
+        int progress;
+        vector<Action> actions;
+        bool proceed() override { return ++progress == actions.size(); }
+    };
+
+    struct TaskGenerator {
+
+        int ctr_id = 0;
+
+        // 初期位置とコマンド列から action list を生成
+        SequentialTask generate_sequential_task(coord pos, const string& cmd_list) {
+
+            SequentialTask task;
+            task.id = ctr_id++;
+            task.type = Task::Type::SEQUENTIAL;
+            task.assignee = nullptr;
+            task.is_cancelable = false;
+            task.is_completed = false;
+            task.progress = 0;
+
+            auto& actions = task.actions;
+            actions.push_back(Action::move(pos, task.id));
+            for (char c : cmd_list) {
+                assert(c != '.'); // wait は許容しない
+                if (isupper(c)) { // move
+                    pos.move(c);
+                    actions.push_back(Action::move(pos, task.id));
+                }
+                else { // block
+                    actions.push_back(Action::block(c2d[c], task.id));
+                }
+            }
+
+            return task;
+        }
+
+        vector<SequentialTask> generate_sequential_tasks() {
+
+            vector<SequentialTask> tasks;
+
+            auto rep = [](int n, const string& s) {
+                string res;
+                while (n--) res += s;
+                return res;
+            };
+
+            for (int k = 0; k < 5; k++) {
+                tasks.push_back(generate_sequential_task({ 6 * k + 6 , 1 }, rep(3 * k + 1, "dUuR") + "dr"));
+            }
+            for (int k = 0; k < 5; k++) {
+                tasks.push_back(generate_sequential_task({ 1, 6 * k + 6 }, rep(3 * k + 2, "rLlD") + "r"));
+            }
+            for (int k = 0; k < 4; k++) {
+                tasks.push_back(generate_sequential_task({ 30, 24 - 6 * k }, rep(3 * k + 2, "lRrU") + "l"));
+            }
+            for (int k = 0; k < 4; k++) {
+                tasks.push_back(generate_sequential_task({ 24 - 6 * k, 30 }, rep(3 * k + 2, "uDdL") + "ul"));
+            }
+
+            return tasks;
+        }
+
+    };
+
+    struct Pet {
+        enum struct Type { COW, PIG, RABBIT, DOG, CAT };
+        int id;
+        coord pos;
+        Type type;
+        Pet(int id = -1, coord pos = -1, Type type = Type(-1)) : id(id), pos(pos), type(type) {}
+        Pet(int id = -1, coord pos = -1, int type = -1) : id(id), pos(pos), type(Type(type)) {}
+        string stringify() const { return format("Pet[%d,%s,%s]", id, pos.stringify().c_str(), type_str().c_str()); }
+    private:
+        string type_str() const {
+            switch (type) {
+            case Type::COW:     return "Cow";
+            case Type::PIG:     return "Pig";
+            case Type::RABBIT:  return "Rabbit";
+            case Type::DOG:     return "Dog";
+            case Type::CAT:     return "Cat";
+            }
+            return "undefined";
+        }
+    };
+
+    struct Human {
+        int id;
+        coord pos;
+        Task* task;
+        std::deque<Action> qu;
+        Human(int id = -1, coord pos = -1) : id(id), pos(pos), task(nullptr) {}
+        void assign(SequentialTask* task_) {
+            this->task = task_;
+            task->assignee = this;
+            std::copy(task_->actions.begin(), task_->actions.end(), std::back_inserter(qu));
+        }
+        string stringify() const { return format("Human[%d,%s]", id, pos.stringify().c_str()); }
+    };
+
+    struct State {
+
+        std::istream& in;
+        std::ostream& out;
+
+        int turn;
+
+        vector<Pet> pets;
+        vector<Human> humans;
+
+        bool is_blocked[NN];
+        int ctr_human[NN];
+        int ctr_pet[NN];
+
+        // 行動途中の情報の記録
+        bool is_blocked_tmp[NN];
+        int ctr_human_tmp[NN];
+
+        State(std::istream& in, std::ostream& out) : in(in), out(out) { init(); }
+
+        void init() {
+            Fill(is_blocked, false);
+            for (int y = 0; y < N; y++) is_blocked[y * N] = is_blocked[y * N + N - 1] = true;
+            for (int x = 0; x < N; x++) is_blocked[x] = is_blocked[N * (N - 1) + x] = true; // 境界
+            Fill(ctr_human, 0);
+            Fill(ctr_pet, 0);
+            turn = 0;
+            int num_pets; in >> num_pets;
+            for (int pid = 0; pid < num_pets; pid++) {
+                coord pos;
+                int t;
+                cin >> pos >> t;
+                pets.emplace_back(pid, pos, t);
+                ctr_pet[pos.idx]++;
+            }
+            int num_humans; in >> num_humans;
+            for (int hid = 0; hid < num_humans; hid++) {
+                coord pos;
+                cin >> pos;
+                humans.emplace_back(hid, pos);
+                ctr_human[pos.idx]++;
+            }
+        }
+
+        void move(Pet& pet, char c) {
+            ctr_pet[pet.pos.idx]--;
+            pet.pos.move(c);
+            ctr_pet[pet.pos.idx]++;
+        }
+
+        void move(Pet& pet, const string& s) {
+            for (char c : s) move(pet, c);
+        }
+
+        void load() {
+            vector<string> moves(pets.size());
+            cin >> moves;
+            for (int pid = 0; pid < pets.size(); pid++) {
+                move(pets[pid], moves[pid]);
+            }
+        }
+
+        bool can_block(coord pos) const {
+            // 重複して設置しない || 人間に刺さない || ペットに刺さない
+            int idx = pos.idx;
+            if (is_blocked_tmp[idx] || ctr_human_tmp[idx] || ctr_pet[idx]) return false;
+            for (int d = 0; d < 4; d++) {
+                int nidx = idx + dir[d];
+                if (ctr_pet[nidx]) return false; // ペットの 4 近傍に置かない
+            }
+            return true;
+        }
+
+        // 人間が target に最短経路で移動するための移動方向（候補複数ならランダム）
+        char calc_move(const Human& human, const Action& action) {
+            static int dist[NN];
+
+            assert(action.get_type() == Action::Type::MOVE);
+
+            int sidx = human.pos.idx, gidx = action.get_coord().idx;
+            assert(sidx != gidx);
+            
+            // pet, human は無視して目的地からの距離を計算
+            Fill(dist, inf);
+            std::queue<int> qu;
+            qu.emplace(gidx);
+            dist[gidx] = 0;
+            while (!qu.empty()) {
+                int idx = qu.front(); qu.pop();
+                for (int d = 0; d < 4; d++) {
+                    int nidx = idx + dir[d];
+                    // 設置予定の柵も含む
+                    if (is_blocked_tmp[nidx] || dist[nidx] != inf) continue;
+                    dist[nidx] = dist[idx] + 1;
+                    qu.emplace(nidx);
+                }
+            }
+
+            if (dist[sidx] == inf) return '.'; // 移動不可
+
+            // 最短経路移動方向の候補を調べる
+            int min_dist = inf;
+            vector<int> cands;
+            for (int d = 0; d < 4; d++) {
+                int nidx = sidx + dir[d];
+                // 柵とペットを踏まない
+                // 人間については、元からいた場所は避ける (移動先が重複するのは許す)
+                if (is_blocked_tmp[nidx] || ctr_human[nidx] || ctr_pet[nidx] || dist[nidx] > min_dist) continue;
+                if (dist[nidx] < min_dist) {
+                    min_dist = dist[nidx];
+                    cands.clear();
+                }
+                cands.push_back(d);
+            }
+
+            if (min_dist == inf) return '.'; // 移動不可 (pet に包囲されるケースが稀にある)
+
+            // ランダムで選ぶ
+            int d = cands[rnd.next_int(cands.size())];
+            return d2C[d];
+        }
+
+        // 柵の設置
+        char calc_block(const Human& human, const Action& action) {
+            assert(action.get_type() == Action::Type::BLOCK);
+            int d = action.get_dir();
+            auto pos = human.pos.moved(d);
+            return can_block(pos) ? d2c[d] : '.';
+        }
+        
+        // (hy, hx) にいる人間がマス (by, bx) に柵を置いた時、ペットを面積 thresh 以下の領域に収容できるか？
+        // 人間が trap 側領域に入るのは許容しない
+        bool can_trap(const Human& human, int d, int thresh) {
+            auto bpos = human.pos.moved(d);
+            if (!can_block(bpos)) return false;
+            is_blocked_tmp[bpos.idx] = true;
+
+            UnionFind tree(NN);
+            // yoko
+            for (int y = 0; y < N; y++) {
+                for (int x = 0; x < N - 1; x++) {
+                    if (is_blocked_tmp[y * N + x] || is_blocked_tmp[y * N + x + 1]) continue;
+                    tree.unite(y * N + x, y * N + x + 1);
+                }
+            }
+            // tate
+            for (int y = 0; y < N - 1; y++) {
+                for (int x = 0; x < N; x++) {
+                    if (is_blocked_tmp[y * N + x] || is_blocked_tmp[(y + 1) * N + x]) continue;
+                    tree.unite(y * N + x, (y + 1) * N + x);
+                }
+            }
+
+            for (const auto& h : humans) {
+                if (tree.size(h.pos.idx) <= thresh) {
+                    // 人間が狭い領域に入ってしまう
+                    is_blocked_tmp[bpos.idx] = false;
+                    return false;
+                }
+            }
+
+            for (int d = 0; d < 4; d++) {
+                coord npos = bpos.moved(d);
+                if (is_blocked_tmp[npos.idx]) continue;
+                int area = tree.size(npos.idx);
+                if (area > thresh) continue;
+                int nbid = tree.find(npos.idx);
+                // pet
+                for (auto [pid, ppos, pt] : pets) {
+                    if (tree.find(ppos.idx) == nbid) {
+                        dump("trap!", turn, pid);
+                        is_blocked_tmp[bpos.idx] = false;
+                        return true;
+                    }
+                }
+            }
+
+            is_blocked_tmp[bpos.idx] = false;
+            return false;
+        }
+
+        char calc_action(const Human& human) {
+            auto& qu = human.qu;
+
+            // 幽閉可能ならする
+            for (int d = 0; d < 4; d++) {
+                if (can_trap(human, d, 40)) {
+                    return d2c[d];
+                }
+            }
+
+            if (!human.task) {
+                auto pos = human.pos;
+                int d = rnd.next_int(4);
+                auto action = Action::move(pos.moved(d));
+                return calc_move(human, action);
+            }
+
+            auto action = qu.front();
+            auto type = action.get_type();
+            switch (type) {
+            case Action::Type::MOVE:
+                return calc_move(human, action);
+            case Action::Type::BLOCK:
+                return calc_block(human, action);
+            case Action::Type::WAIT:
+                return '.';
+            }
+            assert(false);
+            return '.';
+        }
+
+        string calc_actions() {
+            // 各人の行動を決定する過程で制約が増える　blocked_tmp, human_count_tmp でその差分を記録する
+            memcpy(is_blocked_tmp, is_blocked, sizeof(bool) * NN);
+            memcpy(ctr_human_tmp, ctr_human, sizeof(int) * NN);
+
+            string actions(humans.size(), '.');
+
+            for (int hid = 0; hid < humans.size(); hid++) {
+
+                char action = calc_action(humans[hid]);
+                const auto& pos = humans[hid].pos;
+                if (isupper(action)) { // move
+                    int d = c2d[action];
+                    ctr_human_tmp[pos.moved(d).idx]++;
+                }
+                else if (islower(action)) { // block
+                    int d = c2d[action];
+                    is_blocked_tmp[pos.moved(d).idx] = true;
+                }
+
+                actions[hid] = action;
+            }
+
+            return actions;
+        }
+
+        void do_actions(const string& actions) {
+
+            for (int hid = 0; hid < humans.size(); hid++) {
+                auto& pos = humans[hid].pos;
+                char c = actions[hid];
+                if (c == '.') continue;
+                if (isupper(c)) {
+                    ctr_human[pos.idx]--;
+                    pos.move(c);
+                    ctr_human[pos.idx]++;
+                }
+                if (islower(c)) {
+                    is_blocked[pos.moved(c).idx] = true;
+                }
+            }
+        }
+
+        void update_queue(Human& human) {
+            auto& [id, pos, task, qu] = human;
+            while (!qu.empty()) {
+                bool updated = false;
+                const auto& act = qu.front();
+                auto type = act.get_type();
+                switch (type) {
+                case Action::Type::MOVE:
+                {
+                    if (pos == act.get_coord()) {
+                        if (task && act.get_tid() == task->id) {
+                            if (task->proceed()) {
+                                task->assignee = nullptr;
+                                task->is_completed = true;
+                                task = nullptr;
+                            }
+                        }
+                        qu.pop_front();
+                        updated = true;
+                    }
+                    break;
+                }
+                case Action::Type::BLOCK:
+                {
+                    if (is_blocked[pos.moved(act.get_dir()).idx]) {
+                        if (task && act.get_tid() == task->id) {
+                            if (task->proceed()) {
+                                task->assignee = nullptr;
+                                task->is_completed = true;
+                                task = nullptr;
+                            }
+                        }
+                        qu.pop_front();
+                        updated = true;
+                    }
+                    break;
+                }
+                case Action::Type::WAIT:
+                {
+                    if (turn >= act.get_time()) {
+                        qu.pop_front();
+                        updated = true;
+                    }
+                    break;
+                }
+                }
+                if (!updated) break;
+            }
+        }
+
+        void update_queue() {
+            for (auto& human : humans) {
+                update_queue(human);
+            }
+        }
+
+        int calc_dist(coord from, coord to) const {
+            static int dist[NN];
+            Fill(dist, inf);
+            std::queue<coord> qu;
+            qu.emplace(from);
+            dist[from.idx] = 0;
+            while (!qu.empty()) {
+                auto u = qu.front(); qu.pop();
+                for (int d = 0; d < 4; d++) {
+                    auto v = u.moved(d);
+                    if (is_blocked[v.idx] || dist[v.idx] != inf) continue;
+                    dist[v.idx] = dist[u.idx] + 1;
+                    if (v == to) return dist[v.idx];
+                    qu.emplace(v);
+                }
+            }
+            return inf;
+        }
+
+        void solve() {
+
+            // 柵の設置
+            // ターン開始時点でペットもしくは人が居るマスを選ぶことは出来ない
+            // 加えて隣接するマスにペットが存在する場合も選ぶことは出来ない
+            
+            // 人間の移動
+            // 柵(そのターンに設置されるものも含む)以外ならどこでも通行可能
+
+            auto tgen = TaskGenerator();
+            auto tasks = tgen.generate_sequential_tasks();
+
+            auto assign_task = [&]() {
+                for (auto& human : humans) if (!human.task) {
+                    int min_dist = inf;
+                    SequentialTask* selected_task = nullptr;
+                    auto from = human.pos;
+                    for (auto& task : tasks) if (!task.assignee && !task.is_completed) {
+                        auto to = task.actions.front().get_coord();
+                        int dist = calc_dist(from, to);
+                        if (chmin(min_dist, dist)) selected_task = &task;
+                    }
+                    if (selected_task) {
+                        human.assign(selected_task);
+                        //dump(turn, human.id, selected_task->id, selected_task->actions);
+                    }
+                }
+            };
+
+            assign_task();
+            update_queue();
+            while (turn < MAX_TURN) {
+                auto actions = calc_actions();
+                do_actions(actions);
+                cout << actions << endl;
+                load();
+                update_queue();
+                assign_task();
+                turn++;
+            }
+
+        }
+
+    };
+
+    void sandbox() {
+
+        TaskGenerator gen;
+        auto tasks = gen.generate_sequential_tasks();
+        
+    }
+
+}
+
 #ifdef HAVE_OPENCV_HIGHGUI
 
 namespace NManual {
+
+    constexpr int N = 30;
+    constexpr int dy[] = { 0, -1, 0, 1 };
+    constexpr int dx[] = { 1, 0, -1, 0 };
 
     cv::Mat_<cv::Vec3b> get_empty_icon(const cv::Size& size, const cv::Vec3b bgcolor = cv::Vec3b(200, 200, 200)) {
         cv::Mat_<cv::Vec3b> img(size.height, size.height, bgcolor);
@@ -1396,6 +1939,8 @@ namespace NManual {
 
 int main() {
 
+    //while (timer.elapsed_ms() < 20000);
+
     c2d['R'] = c2d['r'] = 0;
     c2d['U'] = c2d['u'] = 1;
     c2d['L'] = c2d['l'] = 2;
@@ -1404,7 +1949,10 @@ int main() {
     //NManual::State state(cin, cout);
     //state.play();
 
-    NSolver::State state(cin, cout);
+    //NSolver::State state(cin, cout);
+    //state.solve();
+
+    NSolver2::State state(cin, cout);
     state.solve();
 
     return 0;
