@@ -270,23 +270,20 @@ namespace NSolver {
 
         enum struct Type { MOVE, BLOCK, WAIT };
 
-        static Action move(coord crd, int task_id = -1) { return Action(Type::MOVE, crd.idx, task_id); }
-        static Action block(int dir, int task_id = -1) { return Action(Type::BLOCK, dir, task_id); }
-        static Action wait(int until) { return Action(Type::WAIT, until, -1); }
+        static Action move(coord crd) { return Action(Type::MOVE, crd.idx); }
+        static Action block(int dir) { return Action(Type::BLOCK, dir); }
+        static Action wait(int until) { return Action(Type::WAIT, until); }
 
         inline Type get_type() const { return type; }
         inline coord get_coord() const { return coord(data); }
         inline int get_dir() const { return data; }
         inline int get_time() const { return data; }
-        inline int get_tid() const { return task_id; }
 
         string stringify() const {
-            string taskstr;
-            if (task_id != -1) taskstr += format("Task%d: ", task_id);
             switch (type) {
-            case Type::MOVE:  return taskstr + "move to " + coord(data).stringify();
-            case Type::BLOCK: return taskstr + "block " + d2C[data];
-            case Type::WAIT:  return taskstr + "wait until " + std::to_string(data);
+            case Type::MOVE:  return "move to " + coord(data).stringify();
+            case Type::BLOCK: return "block " + d2C[data];
+            case Type::WAIT:  return "wait until " + std::to_string(data);
             }
             return "";
         }
@@ -295,9 +292,8 @@ namespace NSolver {
 
         Type type;
         int data;
-        int task_id;
 
-        Action(Type type, int data, int task_id) : type(type), data(data), task_id(task_id) {}
+        Action(Type type, int data) : type(type), data(data) {}
 
     };
 
@@ -306,25 +302,21 @@ namespace NSolver {
 
     struct Task {
         enum struct Type {
-            SEQUENTIAL,     // action 列を逐次的に実行するタスク
-            CAPTURE,        // ペット捕獲タスク
-            DOG             // 犬を肉にするタスク
+            SEQ,    // action 列を逐次的に実行するタスク
+            CAP,    // ペット捕獲タスク
+            DOG     // 犬を肉にするタスク
         };
-        int id;
         Type type;
         Human* assignee;
         bool is_cancelable; // sequential は不可
         bool is_completed;
-        virtual bool proceed() { return false; }
     };
 
-    struct SequentialTask : Task {
-        int progress;
-        vector<Action> actions;
-        bool proceed() override { return ++progress == actions.size(); }
+    struct SeqTask : Task {
+        std::deque<Action> actions;
     };
 
-    struct CaptureTask : Task {
+    struct CapTask : Task {
         Pet* target;
     };
 
@@ -335,38 +327,34 @@ namespace NSolver {
 
     struct TaskGenerator {
 
-        int ctr_id = 0;
-
         // 初期位置とコマンド列から action list を生成
-        SequentialTask generate_sequential_task(coord pos, const string& cmd_list) {
+        SeqTask generate_sequential_task(coord pos, const string& cmd_list) {
 
-            SequentialTask task;
-            task.id = ctr_id++;
-            task.type = Task::Type::SEQUENTIAL;
+            SeqTask task;
+            task.type = Task::Type::SEQ;
             task.assignee = nullptr;
             task.is_cancelable = false;
             task.is_completed = false;
-            task.progress = 0;
 
             auto& actions = task.actions;
-            actions.push_back(Action::move(pos, task.id));
+            actions.push_back(Action::move(pos));
             for (char c : cmd_list) {
                 assert(c != '.'); // wait は許容しない
                 if (isupper(c)) { // move
                     pos.move(c2d[c]);
-                    actions.push_back(Action::move(pos, task.id));
+                    actions.push_back(Action::move(pos));
                 }
                 else { // block
-                    actions.push_back(Action::block(c2d[c], task.id));
+                    actions.push_back(Action::block(c2d[c]));
                 }
             }
 
             return task;
         }
 
-        vector<SequentialTask> generate_sequential_tasks() {
+        vector<SeqTask> generate_sequential_tasks() {
 
-            vector<SequentialTask> tasks;
+            vector<SeqTask> tasks;
 
             auto rep = [](int n, const string& s) {
                 string res;
@@ -398,7 +386,7 @@ namespace NSolver {
         coord pos;
         Type type;
         bool is_captured;
-        CaptureTask* task;
+        CapTask* task;
         Pet(int id = -1, coord pos = -1, Type type = Type(-1)) : id(id), pos(pos), type(type), is_captured(false), task(nullptr) {}
         Pet(int id = -1, coord pos = -1, int type = -1) : id(id), pos(pos), type(Type(type)), is_captured(false), task(nullptr) {}
         string stringify() const { return format("Pet[%d,%s,%s]", id, pos.stringify().c_str(), type_str().c_str()); }
@@ -419,12 +407,11 @@ namespace NSolver {
         int id;
         coord pos;
         Task* task;
-        std::deque<Action> qu;
+        //std::deque<Action> qu;
         Human(int id = -1, coord pos = -1) : id(id), pos(pos), task(nullptr) {}
-        void assign(SequentialTask* task_) {
+        void assign(SeqTask* task_) {
             this->task = task_;
             task->assignee = this;
-            std::copy(task_->actions.begin(), task_->actions.end(), std::back_inserter(qu));
         }
         string stringify() const { return format("Human[%d,%s]", id, pos.stringify().c_str()); }
     };
@@ -443,8 +430,8 @@ namespace NSolver {
         int ctr_human[NN];
         int ctr_pet[NN];
 
-        vector<SequentialTask> seq_tasks;
-        vector<CaptureTask> cap_tasks;
+        vector<SeqTask> seq_tasks;
+        vector<CapTask> cap_tasks;
 
         State(std::istream& in, std::ostream& out) : in(in), out(out) { init(); }
 
@@ -474,9 +461,8 @@ namespace NSolver {
             seq_tasks = TaskGenerator().generate_sequential_tasks();
             cap_tasks.resize(num_pets);
             for (auto& pet : pets) {
-                CaptureTask task;
-                task.id = seq_tasks.size() + pet.id;
-                task.type = Task::Type::CAPTURE;
+                CapTask task;
+                task.type = Task::Type::CAP;
                 task.assignee = nullptr;
                 task.is_cancelable = true;
                 task.is_completed = false;
@@ -570,12 +556,7 @@ namespace NSolver {
                 }
             }
 
-            if (dist[sidx] == inf) {
-                // 人間は隔離されないはずなので、ここは通らないはず…
-                dump("invalid move!");
-                human.qu.pop_front();
-                return '.'; // 移動不可
-            }
+            assert(dist[sidx] != inf);
 
             // 最短経路移動方向の候補を調べる
             int min_dist = inf;
@@ -685,24 +666,28 @@ namespace NSolver {
                 }
             }
 
-            // 2. 柵の設置を解決
-            for (const auto& human : humans) {
-                if (human.qu.empty() || human.qu.front().get_type() != Action::Type::BLOCK || actions[human.id] != '.') continue;
-                actions[human.id] = resolve_block(human, human.qu.front());
-            }
-            
-            // 3. 移動を解決
-
+            // 2. sequential 柵の設置を解決
             for (auto& human : humans) {
-                if (human.qu.empty() || human.qu.front().get_type() != Action::Type::MOVE || actions[human.id] != '.') continue;
-                actions[human.id] = resolve_move(human, human.qu.front());
+                if (actions[human.id] != '.' || !human.task || human.task->type != Task::Type::SEQ) continue;
+                auto stask = reinterpret_cast<SeqTask*>(human.task);
+                if (stask->actions.front().get_type() != Action::Type::BLOCK) continue;
+                actions[human.id] = resolve_block(human, stask->actions.front());
+            }
+
+            // 3. sequential 移動を解決
+            for (auto& human : humans) {
+                if (actions[human.id] != '.' || !human.task || human.task->type != Task::Type::SEQ) continue;
+                auto stask = reinterpret_cast<SeqTask*>(human.task);
+                if (stask->actions.front().get_type() != Action::Type::MOVE) continue;
+                actions[human.id] = resolve_move(human, stask->actions.front());
             }
 
             // 4. capture task
             for (auto& human : humans) {
-                if (human.task && human.task->type == Task::Type::CAPTURE && actions[human.id] == '.') {
-                    auto ctask = reinterpret_cast<CaptureTask*>(human.task);
+                if (human.task && human.task->type == Task::Type::CAP && actions[human.id] == '.') {
+                    auto ctask = reinterpret_cast<CapTask*>(human.task);
                     if (human.pos.distance(ctask->target->pos) <= 2) {
+                        // 距離 2 まで接近（1 以下だと cow を捕獲できない)
                         auto act = Action::move(human.pos.moved(rnd.next_int(4)));
                         actions[human.id] = resolve_move(human, act);
                     }
@@ -727,7 +712,10 @@ namespace NSolver {
         }
 
         void update_queue(Human& human) {
-            auto& [id, pos, task, qu] = human;
+            auto& [id, pos, task] = human;
+            if (!task || task->type != Task::Type::SEQ) return;
+            auto stask = reinterpret_cast<SeqTask*>(task);
+            auto& qu = stask->actions;
             while (!qu.empty()) {
                 bool updated = false;
                 const auto& act = qu.front();
@@ -736,13 +724,6 @@ namespace NSolver {
                 case Action::Type::MOVE:
                 {
                     if (pos == act.get_coord()) {
-                        if (task && act.get_tid() == task->id) {
-                            if (task->proceed()) {
-                                task->assignee = nullptr;
-                                task->is_completed = true;
-                                task = nullptr;
-                            }
-                        }
                         qu.pop_front();
                         updated = true;
                     }
@@ -751,13 +732,6 @@ namespace NSolver {
                 case Action::Type::BLOCK:
                 {
                     if (is_blocked[pos.moved(act.get_dir()).idx]) {
-                        if (task && act.get_tid() == task->id) {
-                            if (task->proceed()) {
-                                task->assignee = nullptr;
-                                task->is_completed = true;
-                                task = nullptr;
-                            }
-                        }
                         qu.pop_front();
                         updated = true;
                     }
@@ -765,14 +739,16 @@ namespace NSolver {
                 }
                 case Action::Type::WAIT:
                 {
-                    if (turn >= act.get_time()) {
-                        qu.pop_front();
-                        updated = true;
-                    }
+                    assert(false);
                     break;
                 }
                 }
                 if (!updated) break;
+            }
+            if (qu.empty()) {
+                stask->assignee = nullptr;
+                stask->is_completed = true;
+                human.task = nullptr;
             }
         }
 
@@ -805,7 +781,7 @@ namespace NSolver {
             // assign seqential task
             for (auto& human : humans) if (!human.task) {
                 int min_dist = inf;
-                SequentialTask* selected_task = nullptr;
+                SeqTask* selected_task = nullptr;
                 auto from = human.pos;
                 for (auto& task : seq_tasks) if (!task.assignee && !task.is_completed) {
                     auto to = task.actions.front().get_coord();
@@ -961,8 +937,8 @@ namespace NSolver {
             for (const auto& human : humans) {
                 auto [y, x] = human.pos.unpack();
                 icon_human.copyTo(img(get_roi(y, x)));
-                if (human.task && human.task->type == Task::Type::CAPTURE) {
-                    auto ctask = reinterpret_cast<CaptureTask*>(human.task);
+                if (human.task && human.task->type == Task::Type::CAP) {
+                    auto ctask = reinterpret_cast<CapTask*>(human.task);
                     auto ppos = ctask->target->pos;
                     cv::arrowedLine(img, get_point(human.pos), get_point(ppos), cv::Scalar(0, 0, 0));
                 }
@@ -991,18 +967,10 @@ int main() {
     cv::utils::logging::setLogLevel(cv::utils::logging::LogLevel::LOG_LEVEL_SILENT);
 #endif
 
-    //while (timer.elapsed_ms() < 20000);
-
     c2d['R'] = c2d['r'] = 0;
     c2d['U'] = c2d['u'] = 1;
     c2d['L'] = c2d['l'] = 2;
     c2d['D'] = c2d['d'] = 3;
-
-    //NManual::State state(cin, cout);
-    //state.play();
-
-    //NSolver::State state(cin, cout);
-    //state.solve();
 
     NSolver::State state(cin, cout);
     state.solve();
