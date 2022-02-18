@@ -275,7 +275,7 @@ namespace NSolver {
         static Action wait(int until) { return Action(Type::WAIT, until); }
 
         inline Type get_type() const { return type; }
-        inline coord get_coord() const { return coord(data); }
+        inline coord get_pos() const { return coord(data); }
         inline int get_dir() const { return data; }
         inline int get_time() const { return data; }
 
@@ -308,7 +308,6 @@ namespace NSolver {
         };
         Type type;
         Human* assignee;
-        bool is_cancelable; // sequential は不可
         bool is_completed;
     };
 
@@ -321,63 +320,8 @@ namespace NSolver {
     };
 
     struct DogTask : Task {
-        coord from; // キルゾーン入り口
-        coord to;   // キルゾーン袋小路
-    };
-
-    struct TaskGenerator {
-
-        // 初期位置とコマンド列から action list を生成
-        SeqTask generate_sequential_task(coord pos, const string& cmd_list) {
-
-            SeqTask task;
-            task.type = Task::Type::SEQ;
-            task.assignee = nullptr;
-            task.is_cancelable = false;
-            task.is_completed = false;
-
-            auto& actions = task.actions;
-            actions.push_back(Action::move(pos));
-            for (char c : cmd_list) {
-                assert(c != '.'); // wait は許容しない
-                if (isupper(c)) { // move
-                    pos.move(c2d[c]);
-                    actions.push_back(Action::move(pos));
-                }
-                else { // block
-                    actions.push_back(Action::block(c2d[c]));
-                }
-            }
-
-            return task;
-        }
-
-        vector<SeqTask> generate_sequential_tasks() {
-
-            vector<SeqTask> tasks;
-
-            auto rep = [](int n, const string& s) {
-                string res;
-                while (n--) res += s;
-                return res;
-            };
-
-            for (int k = 0; k < 5; k++) {
-                tasks.push_back(generate_sequential_task({ 6 * k + 6 , 1 }, rep(3 * k + 1, "dUuR") + "dr"));
-            }
-            for (int k = 0; k < 5; k++) {
-                tasks.push_back(generate_sequential_task({ 1, 6 * k + 6 }, rep(3 * k + 2, "rLlD") + "r"));
-            }
-            for (int k = 0; k < 4; k++) {
-                tasks.push_back(generate_sequential_task({ 30, 24 - 6 * k }, rep(3 * k + 2, "lRrU") + "l"));
-            }
-            for (int k = 0; k < 4; k++) {
-                tasks.push_back(generate_sequential_task({ 24 - 6 * k, 30 }, rep(3 * k + 2, "uDdL") + "ul"));
-            }
-
-            return tasks;
-        }
-
+        coord target;
+        bool is_free;
     };
 
     struct Pet {
@@ -433,6 +377,9 @@ namespace NSolver {
         vector<SeqTask> seq_tasks;
         vector<CapTask> cap_tasks;
 
+        bool dog_task_enabled;
+        vector<DogTask> dog_tasks;
+
         State(std::istream& in, std::ostream& out) : in(in), out(out) { init(); }
 
         void init() {
@@ -458,18 +405,28 @@ namespace NSolver {
                 humans.emplace_back(hid, pos);
                 ctr_human[pos.idx]++;
             }
-            seq_tasks = TaskGenerator().generate_sequential_tasks();
+            seq_tasks = generate_seq_tasks();
             cap_tasks.resize(num_pets);
             for (auto& pet : pets) {
                 CapTask task;
                 task.type = Task::Type::CAP;
                 task.assignee = nullptr;
-                task.is_cancelable = true;
                 task.is_completed = false;
                 task.target = &pet;
                 cap_tasks[pet.id] = task;
                 pet.task = &cap_tasks[pet.id];
             }
+            auto killzones = enum_killzone();
+            for (const auto& killzone : killzones) {
+                DogTask task;
+                task.type = Task::Type::DOG;
+                task.assignee = nullptr;
+                task.is_completed = false;
+                task.target = killzone;
+                task.is_free = true;
+                dog_tasks.push_back(task);
+            }
+            dog_task_enabled = false;
         }
 
         void load_pet_moves() {
@@ -530,43 +487,47 @@ namespace NSolver {
             return true;
         }
 
+        // from から block を避けての最短距離
+        vector<int> bfs(const coord& from) const {
+            assert(!is_blocked[from.idx]);
+            vector<int> dist(NN, inf);
+            std::queue<coord> qu({from});
+            dist[from.idx] = 0;
+            while (!qu.empty()) {
+                auto u = qu.front(); qu.pop();
+                for (int d = 0; d < 4; d++) {
+                    auto v = u.moved(d);
+                    if (is_blocked[v.idx] || dist[v.idx] != inf) continue;
+                    dist[v.idx] = dist[u.idx] + 1;
+                    qu.push(v);
+                }
+            }
+            return dist;
+        }
+
         // 人間が target に最短経路で移動（候補複数ならランダム）
         // 柵の設置は先に処理されている
         char resolve_move(Human& human, const Action& action) {
-            static int dist[NN];
-
             assert(action.get_type() == Action::Type::MOVE);
 
-            int sidx = human.pos.idx, gidx = action.get_coord().idx;
+            auto spos = human.pos;
+            auto gpos = action.get_pos();
 
-            assert(sidx != gidx);
+            assert(!is_blocked[gpos.idx]);
+            assert(spos != gpos);
             
-            // 目的地からの距離を計算
-            Fill(dist, inf);
-            std::queue<int> qu;
-            qu.emplace(gidx);
-            dist[gidx] = 0;
-            while (!qu.empty()) {
-                int idx = qu.front(); qu.pop();
-                for (int d = 0; d < 4; d++) {
-                    int nidx = idx + dir[d];
-                    if (is_blocked[nidx] || dist[nidx] != inf) continue;
-                    dist[nidx] = dist[idx] + 1;
-                    qu.emplace(nidx);
-                }
-            }
-
-            assert(dist[sidx] != inf);
+            auto dist = bfs(gpos);
+            assert(dist[spos.idx] != inf);
 
             // 最短経路移動方向の候補を調べる
             int min_dist = inf;
             vector<int> cands;
             for (int d = 0; d < 4; d++) {
-                int nidx = sidx + dir[d];
+                auto npos = spos.moved(d);
                 // 柵を踏まない
-                if (is_blocked[nidx] || dist[nidx] > min_dist) continue;
-                if (dist[nidx] < min_dist) {
-                    min_dist = dist[nidx];
+                if (is_blocked[npos.idx] || dist[npos.idx] > min_dist) continue;
+                if (dist[npos.idx] < min_dist) {
+                    min_dist = dist[npos.idx];
                     cands.clear();
                 }
                 cands.push_back(d);
@@ -666,7 +627,7 @@ namespace NSolver {
                 }
             }
 
-            // 2. sequential 柵の設置を解決
+            // 2. seq 柵の設置を解決
             for (auto& human : humans) {
                 if (actions[human.id] != '.' || !human.task || human.task->type != Task::Type::SEQ) continue;
                 auto stask = reinterpret_cast<SeqTask*>(human.task);
@@ -674,7 +635,7 @@ namespace NSolver {
                 actions[human.id] = resolve_block(human, stask->actions.front());
             }
 
-            // 3. sequential 移動を解決
+            // 3. seq 移動を解決
             for (auto& human : humans) {
                 if (actions[human.id] != '.' || !human.task || human.task->type != Task::Type::SEQ) continue;
                 auto stask = reinterpret_cast<SeqTask*>(human.task);
@@ -682,14 +643,23 @@ namespace NSolver {
                 actions[human.id] = resolve_move(human, stask->actions.front());
             }
 
-            // 4. capture task
+            // 4. cap task
             for (auto& human : humans) {
                 if (human.task && human.task->type == Task::Type::CAP && actions[human.id] == '.') {
                     auto ctask = reinterpret_cast<CapTask*>(human.task);
                     if (human.pos.distance(ctask->target->pos) <= 2) {
                         // 距離 2 まで接近（1 以下だと cow を捕獲できない)
-                        auto act = Action::move(human.pos.moved(rnd.next_int(4)));
-                        actions[human.id] = resolve_move(human, act);
+                        vector<coord> cands;
+                        for (int d = 0; d < 4; d++) {
+                            auto npos = human.pos.moved(d);
+                            if (!is_blocked[npos.idx]) {
+                                cands.push_back(npos);
+                            }
+                        }
+                        if (!cands.empty()) {
+                            auto act = Action::move(cands[rnd.next_int(cands.size())]);
+                            actions[human.id] = resolve_move(human, act);
+                        }
                     }
                     else {
                         auto act = Action::move(ctask->target->pos);
@@ -723,7 +693,7 @@ namespace NSolver {
                 switch (type) {
                 case Action::Type::MOVE:
                 {
-                    if (pos == act.get_coord()) {
+                    if (pos == act.get_pos()) {
                         qu.pop_front();
                         updated = true;
                     }
@@ -758,23 +728,9 @@ namespace NSolver {
             }
         }
 
-        int calc_dist(coord from, coord to) const {
-            static int dist[NN];
-            Fill(dist, inf);
-            std::queue<coord> qu;
-            qu.emplace(from);
-            dist[from.idx] = 0;
-            while (!qu.empty()) {
-                auto u = qu.front(); qu.pop();
-                for (int d = 0; d < 4; d++) {
-                    auto v = u.moved(d);
-                    if (is_blocked[v.idx] || dist[v.idx] != inf) continue;
-                    dist[v.idx] = dist[u.idx] + 1;
-                    if (v == to) return dist[v.idx];
-                    qu.emplace(v);
-                }
-            }
-            return inf;
+        bool all_captured_without_dogs() const {
+            for (const auto& pet : pets) if (pet.type != Pet::Type::DOG && !pet.is_captured) return false;
+            return true;
         }
 
         void assign_tasks() {
@@ -783,51 +739,87 @@ namespace NSolver {
                 int min_dist = inf;
                 SeqTask* selected_task = nullptr;
                 auto from = human.pos;
+                auto dist = bfs(from);
                 for (auto& task : seq_tasks) if (!task.assignee && !task.is_completed) {
-                    auto to = task.actions.front().get_coord();
-                    int dist = calc_dist(from, to);
-                    if (chmin(min_dist, dist)) selected_task = &task;
+                    auto to = task.actions.front().get_pos();
+                    if (chmin(min_dist, dist[to.idx])) selected_task = &task;
                 }
-                if (selected_task) {
-                    human.assign(selected_task);
-                }
+                if (selected_task) human.assign(selected_task);
             }
             // assign capture task
             for (auto& pet : pets) if (pet.type != Pet::Type::DOG && !pet.is_captured && !pet.task->assignee) {
                 // 最寄りの暇人にタスクをアサイン
                 int min_dist = inf;
                 Human* assigned_human = nullptr;
+                auto dist = bfs(pet.pos);
                 for (auto& human : humans) if (!human.task) {
-                    int dist = calc_dist(human.pos, pet.pos);
-                    if (chmin(min_dist, dist)) {
-                        assigned_human = &human;
-                    }
+                    if (chmin(min_dist, dist[human.pos.idx])) assigned_human = &human;
                 }
                 if (assigned_human) {
                     pet.task->assignee = assigned_human;
                     assigned_human->task = pet.task;
                 }
             }
+            // 犬以外の全ペットが捕獲されたら犬タスクを割り当てる
+            if (!dog_task_enabled && all_captured_without_dogs()) {
+                dog_task_enabled = true;
+                dump("dog task enabled!");
+            }
         }
 
-        vector<coord> enum_kill_zone() {
-            static int dist[NN];
-            
-            {
-                Fill(dist, inf);
-                std::queue<coord> qu;
-                qu.push(coord(16, 16));
-                dist[coord(16, 16).idx] = 0;
-                while (!qu.empty()) {
-                    auto u = qu.front(); qu.pop();
-                    for (int d = 0; d < 4; d++) {
-                        auto v = u.moved(d);
-                        if (is_blocked[v.idx] || dist[v.idx] != inf) continue;
-                        dist[v.idx] = dist[v.idx] + 1;
-                        qu.emplace(v);
-                    }
+        // 初期位置とコマンド列から action list を生成
+        SeqTask generate_seq_task(coord pos, const string& cmd_list) {
+
+            SeqTask task;
+            task.type = Task::Type::SEQ;
+            task.assignee = nullptr;
+            task.is_completed = false;
+
+            auto& actions = task.actions;
+            actions.push_back(Action::move(pos));
+            for (char c : cmd_list) {
+                assert(c != '.'); // wait は許容しない
+                if (isupper(c)) { // move
+                    pos.move(c2d[c]);
+                    actions.push_back(Action::move(pos));
+                }
+                else { // block
+                    actions.push_back(Action::block(c2d[c]));
                 }
             }
+
+            return task;
+        }
+
+        vector<SeqTask> generate_seq_tasks() {
+
+            vector<SeqTask> tasks;
+
+            auto rep = [](int n, const string& s) {
+                string res;
+                while (n--) res += s;
+                return res;
+            };
+
+            for (int k = 0; k < 5; k++) {
+                tasks.push_back(generate_seq_task({ 6 * k + 6 , 1 }, rep(3 * k + 1, "dUuR") + "dr"));
+            }
+            for (int k = 0; k < 5; k++) {
+                tasks.push_back(generate_seq_task({ 1, 6 * k + 6 }, rep(3 * k + 2, "rLlD") + "r"));
+            }
+            for (int k = 0; k < 4; k++) {
+                tasks.push_back(generate_seq_task({ 30, 24 - 6 * k }, rep(3 * k + 2, "lRrU") + "l"));
+            }
+            for (int k = 0; k < 4; k++) {
+                tasks.push_back(generate_seq_task({ 24 - 6 * k, 30 }, rep(3 * k + 2, "uDdL") + "ul"));
+            }
+
+            return tasks;
+        }
+
+        vector<coord> enum_killzone() {
+
+            auto dist = bfs(coord(16, 16));
 
             vector<coord> coords({ 
                 {30,1},{1,30},
@@ -864,7 +856,7 @@ namespace NSolver {
                 show();
             }
 
-            dump(enum_kill_zone());
+            dump(enum_killzone());
 
             for (const auto& pet : pets) if (!pet.is_captured) {
                 dump(pet);
@@ -954,8 +946,6 @@ namespace NSolver {
 
     void sandbox() {
 
-        TaskGenerator gen;
-        auto tasks = gen.generate_sequential_tasks();
         
     }
 
