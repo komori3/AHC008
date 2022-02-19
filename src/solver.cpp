@@ -1,8 +1,8 @@
 #include <bits/stdc++.h>
 #include <random>
 #ifdef _MSC_VER
-//#define ENABLE_VIS
-//#define ENABLE_DUMP
+#define ENABLE_VIS
+#define ENABLE_DUMP
 #endif
 #ifdef _MSC_VER
 #include <ppl.h>
@@ -755,6 +755,7 @@ namespace NSolver {
                 stask->assignee = nullptr;
                 stask->is_completed = true;
                 human.task = nullptr;
+                dump(turn, "seq task completed!", human);
             }
         }
 
@@ -907,6 +908,8 @@ namespace NSolver {
         }
 
         void solve() {
+
+            dump(humans.size(), pets.size());
 
             show();
 
