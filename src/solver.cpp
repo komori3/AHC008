@@ -1,8 +1,8 @@
 #include <bits/stdc++.h>
 #include <random>
 #ifdef _MSC_VER
-#define ENABLE_VIS
-#define ENABLE_DUMP
+//#define ENABLE_VIS
+//#define ENABLE_DUMP
 #endif
 #ifdef _MSC_VER
 #include <ppl.h>
@@ -255,6 +255,12 @@ namespace NSolver {
         inline coord& move(int d) { idx += dir[d]; return *this; }
         inline coord moved(int d) const { return coord(*this).move(d); }
         inline int distance(const coord& c) const { return abs(x() - c.x()) + abs(y() - c.y()); }
+        inline int get_dir(const coord& to) const {
+            if (idx == to.idx) return -1;
+            if (y() == to.y()) return x() < to.x() ? 0 : 2;
+            if (x() == to.x()) return y() < to.y() ? 3 : 1;
+            return -1;
+        }
         bool operator==(const coord& c) const { return idx == c.idx; }
         bool operator!=(const coord& c) const { return !(*this == c); }
         string stringify() const { return format("(%d,%d)", y(), x()); }
@@ -304,7 +310,6 @@ namespace NSolver {
         enum struct Type {
             SEQ,    // action 列を逐次的に実行するタスク
             CAP,    // ペット捕獲タスク
-            DOG     // 犬を肉にするタスク
         };
         Type type;
         Human* assignee;
@@ -317,11 +322,6 @@ namespace NSolver {
 
     struct CapTask : Task {
         Pet* target;
-    };
-
-    struct DogTask : Task {
-        coord target;
-        bool is_free;
     };
 
     struct Pet {
@@ -351,7 +351,6 @@ namespace NSolver {
         int id;
         coord pos;
         Task* task;
-        //std::deque<Action> qu;
         Human(int id = -1, coord pos = -1) : id(id), pos(pos), task(nullptr) {}
         void assign(SeqTask* task_) {
             this->task = task_;
@@ -376,9 +375,6 @@ namespace NSolver {
 
         vector<SeqTask> seq_tasks;
         vector<CapTask> cap_tasks;
-
-        bool dog_task_enabled;
-        vector<DogTask> dog_tasks;
 
         State(std::istream& in, std::ostream& out) : in(in), out(out) { init(); }
 
@@ -416,17 +412,6 @@ namespace NSolver {
                 cap_tasks[pet.id] = task;
                 pet.task = &cap_tasks[pet.id];
             }
-            auto killzones = enum_killzone();
-            for (const auto& killzone : killzones) {
-                DogTask task;
-                task.type = Task::Type::DOG;
-                task.assignee = nullptr;
-                task.is_completed = false;
-                task.target = killzone;
-                task.is_free = true;
-                dog_tasks.push_back(task);
-            }
-            dog_task_enabled = false;
         }
 
         void load_pet_moves() {
@@ -466,7 +451,7 @@ namespace NSolver {
                 if (tree.size(pet.pos.idx) <= capture_thresh) {
                     pet.is_captured = true;
                     pet.task->is_completed = true;
-                    dump("captured!", turn, (pet.task->assignee ? pet.task->assignee->stringify() : "null") , pet, tree.size(pet.pos.idx));
+                    if (pet.type == Pet::Type::DOG) dump("captured!", turn, (pet.task->assignee ? pet.task->assignee->stringify() : "null"), pet, tree.size(pet.pos.idx));
                     if (pet.task->assignee) {
                         pet.task->assignee->task = nullptr;
                         pet.task->assignee = nullptr;
@@ -491,7 +476,7 @@ namespace NSolver {
         vector<int> bfs(const coord& from) const {
             assert(!is_blocked[from.idx]);
             vector<int> dist(NN, inf);
-            std::queue<coord> qu({from});
+            std::queue<coord> qu({ from });
             dist[from.idx] = 0;
             while (!qu.empty()) {
                 auto u = qu.front(); qu.pop();
@@ -515,7 +500,7 @@ namespace NSolver {
 
             assert(!is_blocked[gpos.idx]);
             assert(spos != gpos);
-            
+
             auto dist = bfs(gpos);
             assert(dist[spos.idx] != inf);
 
@@ -561,7 +546,7 @@ namespace NSolver {
             }
             return '.';
         }
-        
+
         // (hy, hx) にいる人間がマス (by, bx) に柵を置いた時、ペットを面積 thresh 以下の領域に収容できるか？
         // 人間が trap 側領域に入るのは許容しない
         bool can_trap(const Human& human, int d, int thresh) {
@@ -645,30 +630,29 @@ namespace NSolver {
 
             // 4. cap task
             for (auto& human : humans) {
-                if (human.task && human.task->type == Task::Type::CAP && actions[human.id] == '.') {
-                    auto ctask = reinterpret_cast<CapTask*>(human.task);
-                    if (human.pos.distance(ctask->target->pos) <= 2) {
-                        // 距離 2 まで接近（1 以下だと cow を捕獲できない)
-                        vector<coord> cands;
-                        for (int d = 0; d < 4; d++) {
-                            auto npos = human.pos.moved(d);
-                            if (!is_blocked[npos.idx]) {
-                                cands.push_back(npos);
-                            }
-                        }
-                        if (!cands.empty()) {
-                            auto act = Action::move(cands[rnd.next_int(cands.size())]);
-                            actions[human.id] = resolve_move(human, act);
+                if (actions[human.id] != '.' || !human.task || human.task->type != Task::Type::CAP) continue;
+                auto ctask = reinterpret_cast<CapTask*>(human.task);
+                if (human.pos.distance(ctask->target->pos) <= 2) {
+                    // 距離 2 まで接近（1 以下だと cow を捕獲できない)
+                    vector<coord> cands;
+                    for (int d = 0; d < 4; d++) {
+                        auto npos = human.pos.moved(d);
+                        if (!is_blocked[npos.idx]) {
+                            cands.push_back(npos);
                         }
                     }
-                    else {
-                        auto act = Action::move(ctask->target->pos);
+                    if (!cands.empty()) {
+                        auto act = Action::move(cands[rnd.next_int(cands.size())]);
                         actions[human.id] = resolve_move(human, act);
                     }
                 }
+                else {
+                    auto act = Action::move(ctask->target->pos);
+                    actions[human.id] = resolve_move(human, act);
+                }
             }
 
-            // 5. gather
+            // 6. gather
             for (auto& human : humans) {
                 if (!human.task && actions[human.id] == '.' && human.pos != coord(16, 16)) {
                     auto act = Action::move(coord(16, 16));
@@ -676,7 +660,59 @@ namespace NSolver {
                 }
             }
 
-            // 6. dog task
+            return actions;
+        }
+
+        struct KillZone {
+            coord pos_sacrifice;
+            coord pos_move;
+            coord pos_block;
+        };
+
+        string resolve_actions2(const KillZone zone) {
+
+            auto all_moved = [&]() {
+                for (int i = 0; i < humans.size() - 1; i++) {
+                    if (humans[i].pos != zone.pos_move) return false;
+                }
+                return true;
+            };
+
+            auto all_capture = [&]() {
+                if (!can_block(zone.pos_block)) return false;
+                is_blocked[zone.pos_block.idx] = true;
+                auto dist = bfs(zone.pos_sacrifice);
+                if (dist[humans.back().pos.idx] == inf) {
+                    is_blocked[zone.pos_block.idx] = false;
+                    return false;
+                }
+                for (const auto& pet : pets) if (!pet.is_captured && dist[pet.pos.idx] == inf) {
+                    is_blocked[zone.pos_block.idx] = false;
+                    return false;
+                }
+                is_blocked[zone.pos_block.idx] = false;
+                return true;
+            };
+
+            string actions(humans.size(), '.');
+
+            if (all_moved() && all_capture()) {
+                actions[0] = resolve_block(humans[0], Action::block(zone.pos_move.get_dir(zone.pos_block)));
+                return actions;
+            }
+
+            for (int i = 0; i < humans.size() - 1; i++) {
+                auto& human = humans[i];
+                if (human.pos != zone.pos_move) {
+                    actions[human.id] = resolve_move(human, Action::move(zone.pos_move));
+                }
+            }
+            {
+                auto& human = humans.back();
+                if (human.pos != zone.pos_sacrifice) {
+                    actions[human.id] = resolve_move(human, Action::move(zone.pos_sacrifice));
+                }
+            }
 
             return actions;
         }
@@ -733,6 +769,11 @@ namespace NSolver {
             return true;
         }
 
+        bool all_captured() const {
+            for (const auto& pet : pets) if (!pet.is_captured) return false;
+            return true;
+        }
+
         void assign_tasks() {
             // assign seqential task
             for (auto& human : humans) if (!human.task) {
@@ -759,11 +800,6 @@ namespace NSolver {
                     pet.task->assignee = assigned_human;
                     assigned_human->task = pet.task;
                 }
-            }
-            // 犬以外の全ペットが捕獲されたら犬タスクを割り当てる
-            if (!dog_task_enabled && all_captured_without_dogs()) {
-                dog_task_enabled = true;
-                dump("dog task enabled!");
             }
         }
 
@@ -817,11 +853,11 @@ namespace NSolver {
             return tasks;
         }
 
-        vector<coord> enum_killzone() {
+        vector<KillZone> enum_killzones() {
 
             auto dist = bfs(coord(16, 16));
 
-            vector<coord> coords({ 
+            vector<coord> coords({
                 {30,1},{1,30},
                 {30,3},{3,30},{27,1},{1,27},
                 {30,6},{6,30},{24,1},{1,24},
@@ -837,7 +873,37 @@ namespace NSolver {
                 cands.push_back(c);
             }
 
-            return cands;
+            auto f = [&](coord pos) {
+                // bfs して初めて一本道でなくなる場所をチェック
+                bool seen[NN] = {};
+                std::queue<coord> qu;
+                seen[pos.idx] = true;
+                qu.push(pos);
+                while (!qu.empty()) {
+                    auto u = qu.front(); qu.pop();
+                    int cnt = 0;
+                    for (int d = 0; d < 4; d++) {
+                        auto v = u.moved(d);
+                        if (is_blocked[v.idx] || seen[v.idx]) continue;
+                        seen[v.idx] = true;
+                        qu.push(v);
+                        cnt++;
+                        if (cnt >= 2) {
+                            return std::pair<coord, coord>(u, v);
+                        }
+                    }
+                }
+                return std::pair<coord, coord>();
+            };
+
+            vector<KillZone> res;
+
+            for (auto pos_sacrifice : cands) {
+                auto [pos_block, pos_move] = f(pos_sacrifice);
+                res.push_back({ pos_sacrifice, pos_move, pos_block });
+            }
+
+            return res;
         }
 
         void solve() {
@@ -846,7 +912,7 @@ namespace NSolver {
 
             assign_tasks();
             update_queue();
-            while (turn < MAX_TURN) {
+            while (turn < MAX_TURN && !all_captured_without_dogs()) {
                 auto actions = resolve_actions();
                 cout << actions << endl;
                 load_pet_moves();
@@ -856,7 +922,19 @@ namespace NSolver {
                 show();
             }
 
-            dump(enum_killzone());
+            auto zone = enum_killzones()[0];
+
+            // human[-1] が pos_sacrifice へ
+            // human[:-1] が pos_move へ移動
+            while (turn < MAX_TURN) {
+                auto actions = all_captured() ? string(humans.size(), '.') : resolve_actions2(zone);
+                cout << actions << endl;
+                load_pet_moves();
+                update_queue();
+                assign_tasks();
+                turn++;
+                show();
+            }
 
             for (const auto& pet : pets) if (!pet.is_captured) {
                 dump(pet);
@@ -943,11 +1021,6 @@ namespace NSolver {
 #endif
 
     };
-
-    void sandbox() {
-
-        
-    }
 
 }
 
