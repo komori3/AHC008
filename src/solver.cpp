@@ -1,8 +1,8 @@
 #include <bits/stdc++.h>
 #include <random>
 #ifdef _MSC_VER
-#define ENABLE_VIS
-#define ENABLE_DUMP
+//#define ENABLE_VIS
+//#define ENABLE_DUMP
 #endif
 #ifdef _MSC_VER
 #include <ppl.h>
@@ -245,6 +245,41 @@ namespace NSolver {
     constexpr int dir[] = { 1, -N, -1, N };
     constexpr int capture_thresh = 35;
 
+    constexpr char board_str[N][N + 1] = {
+"################################",
+"#X..#..#..#..#..#..#..#..#..#..#",
+"#.X#..#..#..#..#..#..#..#..#..##",
+"#..X.#..#..#..#..#..#..#..#..#.#",
+"##..X..#..#..#..#..#..#..#..#..#",
+"#..#.X#..#..#..#..#..#..#..#..##",
+"#.#...X.#..#..#..#..#..#..#..#.#",
+"##..#..X..#..#..#..#..#..#..#..#",
+"#..#..#.X#..#..#..#..#..#..#..##",
+"#.#..#...X.#..#..#..#..#..#..#.#",
+"##..#..#..X..#..#..#..#..#..#..#",
+"#..#..#..#.X#..#..#..#..#..#..##",
+"#.#..#..#...X.#..#..#..#..#..#.#",
+"##..#..#..#..X..#..#..#..#..#..#",
+"#..#..#..#..#.X#..#..#..#..#..##",
+"#.#..#..#..#...X.#..#..#..#..#.#",
+"##..#..#..#..#@@X..#..#..#..#..#",
+"#..#..#..#..#@@#@X#..#..#..#..##",
+"#.#..#..#..#@@#@@.X.#..#..#..#.#",
+"##..#..#..#@@#@@#..X..#..#..#..#",
+"#..#..#..#@@#@@#..#.X#..#..#..##",
+"#.#..#..#@@#@@#..#...X.#..#..#.#",
+"##..#..#@@#@@#..#..#..X..#..#..#",
+"#..#..#@@#@@#..#..#..#.X#..#..##",
+"#.#..#@@#@@#..#..#..#...X.#..#.#",
+"##..#@@#@@#..#..#..#..#..X..#..#",
+"#..#@@#@@#..#..#..#..#..#.X#..##",
+"#.#@@#@@#..#..#..#..#..#...X.#.#",
+"##@@#@@#..#..#..#..#..#..#..X..#",
+"#@@#@@#..#..#..#..#..#..#..#.X.#",
+"#@@@@#..#..#..#..#..#..#..#...X#",
+"################################"
+    };
+
     struct coord {
         int idx;
         coord(int idx = 0) : idx(idx) {}
@@ -370,18 +405,31 @@ namespace NSolver {
         vector<Human> humans;
 
         bool is_blocked[NN];
+        bool is_zone[NN];
         int ctr_human[NN];
         int ctr_pet[NN];
+
+        bool dog_exists;
+        bool dog_kill_mode;
+        bool dog_kill_completed;
 
         vector<SeqTask> seq_tasks;
         vector<CapTask> cap_tasks;
 
-        State(std::istream& in, std::ostream& out) : in(in), out(out) { init(); }
+        State(std::istream& in, std::ostream& out) : in(in), out(out) {}
 
         void init() {
             Fill(is_blocked, false);
             for (int y = 0; y < N; y++) is_blocked[y * N] = is_blocked[y * N + N - 1] = true;
             for (int x = 0; x < N; x++) is_blocked[x] = is_blocked[N * (N - 1) + x] = true; // 境界
+            Fill(is_zone, false);
+            for (int y = 0; y < N; y++) {
+                for (int x = 0; x < N; x++) {
+                    if (board_str[y][x] == '@') {
+                        is_zone[coord(y, x).idx] = true;
+                    }
+                }
+            }
             Fill(ctr_human, 0);
             Fill(ctr_pet, 0);
             turn = 0;
@@ -401,7 +449,12 @@ namespace NSolver {
                 humans.emplace_back(hid, pos);
                 ctr_human[pos.idx]++;
             }
-            seq_tasks = generate_seq_tasks();
+            dog_exists = false;
+            for (const auto& pet : pets) if (pet.type == Pet::Type::DOG) dog_exists = true;
+            dog_kill_mode = false;
+            dog_kill_completed = false;
+
+            seq_tasks = generate_seq_tasks(); // NOTE: dog_exists に依存あり
             cap_tasks.resize(num_pets);
             for (auto& pet : pets) {
                 CapTask task;
@@ -663,60 +716,6 @@ namespace NSolver {
             return actions;
         }
 
-        struct KillZone {
-            coord pos_sacrifice;
-            coord pos_move;
-            coord pos_block;
-        };
-
-        string resolve_actions2(const KillZone zone) {
-
-            auto all_moved = [&]() {
-                for (int i = 0; i < humans.size() - 1; i++) {
-                    if (humans[i].pos != zone.pos_move) return false;
-                }
-                return true;
-            };
-
-            auto all_capture = [&]() {
-                if (!can_block(zone.pos_block)) return false;
-                is_blocked[zone.pos_block.idx] = true;
-                auto dist = bfs(zone.pos_sacrifice);
-                if (dist[humans.back().pos.idx] == inf) {
-                    is_blocked[zone.pos_block.idx] = false;
-                    return false;
-                }
-                for (const auto& pet : pets) if (!pet.is_captured && dist[pet.pos.idx] == inf) {
-                    is_blocked[zone.pos_block.idx] = false;
-                    return false;
-                }
-                is_blocked[zone.pos_block.idx] = false;
-                return true;
-            };
-
-            string actions(humans.size(), '.');
-
-            if (all_moved() && all_capture()) {
-                actions[0] = resolve_block(humans[0], Action::block(zone.pos_move.get_dir(zone.pos_block)));
-                return actions;
-            }
-
-            for (int i = 0; i < humans.size() - 1; i++) {
-                auto& human = humans[i];
-                if (human.pos != zone.pos_move) {
-                    actions[human.id] = resolve_move(human, Action::move(zone.pos_move));
-                }
-            }
-            {
-                auto& human = humans.back();
-                if (human.pos != zone.pos_sacrifice) {
-                    actions[human.id] = resolve_move(human, Action::move(zone.pos_sacrifice));
-                }
-            }
-
-            return actions;
-        }
-
         void update_queue(Human& human) {
             auto& [id, pos, task] = human;
             if (!task || task->type != Task::Type::SEQ) return;
@@ -765,16 +764,6 @@ namespace NSolver {
             }
         }
 
-        bool all_captured_without_dogs() const {
-            for (const auto& pet : pets) if (pet.type != Pet::Type::DOG && !pet.is_captured) return false;
-            return true;
-        }
-
-        bool all_captured() const {
-            for (const auto& pet : pets) if (!pet.is_captured) return false;
-            return true;
-        }
-
         void assign_tasks() {
             // assign seqential task
             for (auto& human : humans) if (!human.task) {
@@ -788,8 +777,19 @@ namespace NSolver {
                 }
                 if (selected_task) human.assign(selected_task);
             }
+
+            // TODO: rearrange capture task
+            // 全部再割当てしなおす
+            
+            // cancel capture task
+            for (auto& pet : pets) {
+                if (pet.type == Pet::Type::DOG || pet.is_captured || !pet.task->assignee || !is_zone[pet.pos.idx]) continue;
+                auto& human = *pet.task->assignee;
+                human.task = nullptr;
+                pet.task->assignee = nullptr;
+            }
             // assign capture task
-            for (auto& pet : pets) if (pet.type != Pet::Type::DOG && !pet.is_captured && !pet.task->assignee) {
+            for (auto& pet : pets) if (pet.type != Pet::Type::DOG && !pet.is_captured && !pet.task->assignee && !is_zone[pet.pos.idx]) {
                 // 最寄りの暇人にタスクをアサイン
                 int min_dist = inf;
                 Human* assigned_human = nullptr;
@@ -838,76 +838,128 @@ namespace NSolver {
                 return res;
             };
 
-            for (int k = 0; k < 5; k++) {
-                tasks.push_back(generate_seq_task({ 6 * k + 6 , 1 }, rep(3 * k + 1, "dUuR") + "dr"));
+            if (dog_exists) {
+                {
+                    string cmd = "rdLuDdLuDdLuDdLuDdLuDdLuDdLuDdLuDdLuDdLuDdLuDdLuDLuD";
+                    cmd += "RRRRR" + rep(11, "lRrU") + "l";
+                    tasks.push_back(generate_seq_task({ 17, 14 }, cmd));
+                }
+
+                for (int k = 0; k < 4; k++) {
+                    tasks.push_back(generate_seq_task({ 6 * k + 6 , 1 }, rep(3 * k + 1, "dUuR") + "dr"));
+                }
+                for (int k = 0; k < 5; k++) {
+                    tasks.push_back(generate_seq_task({ 1, 6 * k + 6 }, rep(3 * k + 2, "rLlD") + "r"));
+                }
+                for (int k = 0; k < 3; k++) {
+                    tasks.push_back(generate_seq_task({ 30, 24 - 6 * k }, rep(3 * k + 2, "lRrU") + "l"));
+                }
+                for (int k = 0; k < 4; k++) {
+                    tasks.push_back(generate_seq_task({ 24 - 6 * k, 30 }, rep(3 * k + 2, "uDdL") + "ul"));
+                }
             }
-            for (int k = 0; k < 5; k++) {
-                tasks.push_back(generate_seq_task({ 1, 6 * k + 6 }, rep(3 * k + 2, "rLlD") + "r"));
-            }
-            for (int k = 0; k < 4; k++) {
-                tasks.push_back(generate_seq_task({ 30, 24 - 6 * k }, rep(3 * k + 2, "lRrU") + "l"));
-            }
-            for (int k = 0; k < 4; k++) {
-                tasks.push_back(generate_seq_task({ 24 - 6 * k, 30 }, rep(3 * k + 2, "uDdL") + "ul"));
+            else {
+                for (int k = 0; k < 5; k++) {
+                    tasks.push_back(generate_seq_task({ 6 * k + 6 , 1 }, rep(3 * k + 1, "dUuR") + "dr"));
+                }
+                for (int k = 0; k < 5; k++) {
+                    tasks.push_back(generate_seq_task({ 1, 6 * k + 6 }, rep(3 * k + 2, "rLlD") + "r"));
+                }
+                for (int k = 0; k < 4; k++) {
+                    tasks.push_back(generate_seq_task({ 30, 24 - 6 * k }, rep(3 * k + 2, "lRrU") + "l"));
+                }
+                for (int k = 0; k < 4; k++) {
+                    tasks.push_back(generate_seq_task({ 24 - 6 * k, 30 }, rep(3 * k + 2, "uDdL") + "ul"));
+                }
             }
 
             return tasks;
         }
 
-        vector<KillZone> enum_killzones() {
-
-            auto dist = bfs(coord(16, 16));
-
-            vector<coord> coords({
-                {30,1},{1,30},
-                {30,3},{3,30},{27,1},{1,27},
-                {30,6},{6,30},{24,1},{1,24},
-                {30,9},{9,30},{21,1},{1,21},
-                {30,12},{12,30},{18,1},{1,18},
-                {30,15},{15,30},{15,1},{1,15},
-                {30,18},{18,30},{12,1},{1,12},
-                {30,21},{21,30},{9,1},{1,9}
-                });
-
-            vector<coord> cands;
-            for (auto c : coords) if (dist[c.idx] != inf) {
-                cands.push_back(c);
+        void toggle_dog_kill_mode() {
+            if (!dog_exists) return;
+            if (dog_kill_completed) return;
+            if (!dog_kill_mode) {
+                // seq task 0 が終了している
+                // 犬を除く killzone にいないペットは全捕獲済
+                if (!seq_tasks[0].is_completed) return;
+                for (const auto& pet : pets) {
+                    if (pet.type == Pet::Type::DOG || is_zone[pet.pos.idx]) continue;
+                    if (!pet.is_captured) return;
+                }
+                dog_kill_mode = true;
+                dump(turn, "dog kill mode start!");
             }
-
-            auto f = [&](coord pos) {
-                // bfs して初めて一本道でなくなる場所をチェック
-                bool seen[NN] = {};
-                std::queue<coord> qu;
-                seen[pos.idx] = true;
-                qu.push(pos);
-                while (!qu.empty()) {
-                    auto u = qu.front(); qu.pop();
-                    int cnt = 0;
-                    for (int d = 0; d < 4; d++) {
-                        auto v = u.moved(d);
-                        if (is_blocked[v.idx] || seen[v.idx]) continue;
-                        seen[v.idx] = true;
-                        qu.push(v);
-                        cnt++;
-                        if (cnt >= 2) {
-                            return std::pair<coord, coord>(u, v);
-                        }
+            else {
+                // 犬を全捕獲したらオフ
+                for (const auto& pet : pets) {
+                    if (pet.type == Pet::Type::DOG && !pet.is_captured) {
+                        return;
                     }
                 }
-                return std::pair<coord, coord>();
+                dog_kill_mode = false;
+                dog_kill_completed = true;
+                dump(turn, "dog kill mode end!");
+            }
+        }
+
+        string resolve_dogkill_actions() {
+
+            auto pos1 = coord(17, 13);
+            auto pos2 = coord(27, 3);
+            auto b1 = coord(18, 13);
+            auto b2 = coord(27, 4);
+
+            auto all_moved = [&]() {
+                for (int i = 0; i < humans.size() - 1; i++) {
+                    if (humans[i].pos != pos1) return false;
+                }
+                if (humans.back().pos != pos2) return false;
+                return true;
             };
 
-            vector<KillZone> res;
+            auto all_capture = [&]() {
+                if (!can_block(b1) || !can_block(b2)) return false;
+                is_blocked[b1.idx] = true;
+                is_blocked[b2.idx] = true;
+                auto dist = bfs(b1.moved(2));
+                for (const auto& pet : pets) if (!pet.is_captured && pet.type == Pet::Type::DOG && dist[pet.pos.idx] == inf) {
+                    is_blocked[b1.idx] = false;
+                    is_blocked[b2.idx] = false;
+                    return false;
+                }
+                is_blocked[b1.idx] = false;
+                is_blocked[b2.idx] = false;
+                return true;
+            };
 
-            for (auto pos_sacrifice : cands) {
-                auto [pos_block, pos_move] = f(pos_sacrifice);
-                res.push_back({ pos_sacrifice, pos_move, pos_block });
+            string actions(humans.size(), '.');
+
+            if (all_moved() && all_capture()) {
+                actions[0] = resolve_block(humans[0], Action::block(3));
+                actions.back() = resolve_block(humans.back(), Action::block(0));
+                return actions;
             }
 
-            return res;
+            for (int i = 0; i < humans.size() - 1; i++) {
+                auto& human = humans[i];
+                if (human.pos != pos1) {
+                    actions[human.id] = resolve_move(human, Action::move(pos1));
+                }
+            }
+            {
+                auto& human = humans.back();
+                if (human.pos != pos2) {
+                    actions[human.id] = resolve_move(human, Action::move(pos2));
+                }
+            }
+
+            return actions;
         }
 
         void solve() {
+
+            init();
 
             dump(humans.size(), pets.size());
 
@@ -915,22 +967,11 @@ namespace NSolver {
 
             assign_tasks();
             update_queue();
-            while (turn < MAX_TURN && !all_captured_without_dogs()) {
-                auto actions = resolve_actions();
-                cout << actions << endl;
-                load_pet_moves();
-                update_queue();
-                assign_tasks();
-                turn++;
-                show();
-            }
-
-            auto zone = enum_killzones()[0];
-
-            // human[-1] が pos_sacrifice へ
-            // human[:-1] が pos_move へ移動
             while (turn < MAX_TURN) {
-                auto actions = all_captured() ? string(humans.size(), '.') : resolve_actions2(zone);
+                toggle_dog_kill_mode();
+                string actions;
+                if (dog_kill_mode) actions = resolve_dogkill_actions();
+                else actions = resolve_actions();
                 cout << actions << endl;
                 load_pet_moves();
                 update_queue();
@@ -1016,7 +1057,11 @@ namespace NSolver {
                     cv::arrowedLine(img, get_point(human.pos), get_point(ppos), cv::Scalar(0, 0, 0));
                 }
             }
-            cv::imshow("img", img);
+
+            cv::putText(img, format("turn: %d", turn), cv::Point(icon_size * 2 / 3, icon_size * 2 / 3), cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 0, 0), 3);
+            cv::putText(img, format("turn: %d", turn), cv::Point(icon_size * 2 / 3, icon_size * 2 / 3), cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 255), 2);
+
+            cv::imshow("vis", img);
             cv::waitKey(delay);
         }
 #else
