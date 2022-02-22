@@ -438,10 +438,6 @@ namespace NSolver {
                 }
             }
 
-            for (const auto& v : idist) cerr << v << endl;
-
-            dump("---");
-
             // 完成盤面
             bool blk[NN] = {};
             for (int y = 0; y < N; y++) {
@@ -474,8 +470,6 @@ namespace NSolver {
                     tdist[t1][t2] = dist[startpos.idx];
                 }
             }
-
-            for (const auto& v : tdist) cerr << v << endl;
 
             // 貪欲初期解
             auto get_init_sol = [&]() {
@@ -652,8 +646,6 @@ namespace NSolver {
 
             seq_tasks = generate_seq_tasks(); // NOTE: dog_exists に依存あり
             dump(seq_tasks.size());
-
-            auto assign = SeqTaskScheduler(humans, seq_tasks).run();
 
             for (auto& pet : pets) {
                 CapTask* task = new CapTask;
@@ -962,7 +954,7 @@ namespace NSolver {
             if (qu.empty()) {
                 stask->assignee = nullptr;
                 stask->is_completed = true;
-                human.task = nullptr;
+                human.task = stask->next_task;
                 dump(turn, "seq task completed!", human);
             }
         }
@@ -974,19 +966,6 @@ namespace NSolver {
         }
 
         void assign_tasks() {
-
-            // assign seqential task
-            for (auto& human : humans) if (!human.task) {
-                int min_dist = inf;
-                SeqTask* selected_task = nullptr;
-                auto from = human.pos;
-                auto dist = bfs(from);
-                for (auto& task : seq_tasks) if (!task.assignee && !task.is_completed) {
-                    auto to = task.actions.front().get_pos();
-                    if (chmin(min_dist, dist[to.idx])) selected_task = &task;
-                }
-                if (selected_task) human.assign(selected_task);
-            }
 
             // rearrange capture task
 
@@ -1221,6 +1200,19 @@ namespace NSolver {
             dump(humans.size(), pets.size());
 
             show();
+
+            { // seq task assign
+                auto assign = SeqTaskScheduler(humans, seq_tasks).run();
+                for (int hid = 0; hid < humans.size(); hid++) {
+                    auto& human = humans[hid];
+                    SeqTask* task = &seq_tasks[assign[hid][0]];
+                    human.task = task;
+                    for (int i = 1; i < assign[hid].size(); i++) {
+                        task->next_task = &seq_tasks[assign[hid][i]];
+                        task = task->next_task;
+                    }
+                }
+            }
 
             assign_tasks();
             update_queue();
