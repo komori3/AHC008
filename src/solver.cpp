@@ -3,7 +3,7 @@
 #ifdef _MSC_VER
 #define ENABLE_VIS
 #define ENABLE_DUMP
-//#define ENABLE_STATS_DUMP
+#define ENABLE_STATS_DUMP
 #endif
 #ifdef _MSC_VER
 #include <ppl.h>
@@ -518,32 +518,35 @@ namespace NSolver {
                 return *std::max_element(cost.begin(), cost.end());
             };
 
-            // 適当な多点スタート山登り
-            int min_cost = inf;
-            vector<vector<int>> best_sol;
-            for (int t = 0; t < 100; t++) {
-                auto sol = get_init_sol();
-                int prev_cost = evaluate(sol);
-                for (int i = 0; i < 10000; i++) {
-                    int hid1 = rnd.next_int(nh), hid2;
-                    do {
-                        hid2 = rnd.next_int(nh);
-                    } while (hid1 == hid2);
-                    int tidx1 = rnd.next_int(sol[hid1].size());
-                    int tidx2 = rnd.next_int(sol[hid2].size());
-                    std::swap(sol[hid1][tidx1], sol[hid2][tidx2]);
-                    int cost = evaluate(sol);
-                    if (cost < prev_cost) {
-                        prev_cost = cost;
-                    }
-                    else {
-                        std::swap(sol[hid1][tidx1], sol[hid2][tidx2]);
+            auto get_temp = [](double startTemp, double endTemp, double t, double T) {
+                return endTemp + (startTemp - endTemp) * (T - t) / T;
+            };
+
+            auto best_sol = get_init_sol();
+            int min_cost = evaluate(best_sol);
+            dump(min_cost);
+            constexpr int num_loop = 10000000;
+            auto sol = best_sol;
+            int cost = min_cost;
+            for (int loop = 0; loop < num_loop; loop++) {
+                int hid1 = rnd.next_int(nh), hid2 = rnd.next_int(nh);
+                int tidx1 = rnd.next_int(sol[hid1].size()), tidx2 = rnd.next_int(sol[hid2].size());
+                if (hid1 == hid2 && tidx1 == tidx2) continue;
+                std::swap(sol[hid1][tidx1], sol[hid2][tidx2]);
+                int now_cost = evaluate(sol);
+                int diff = now_cost - cost;
+                double temp = get_temp(3.0, 0.0, loop, num_loop);
+                double prob = exp(-diff / temp);
+                if (rnd.next_double() < prob) {
+                    cost = now_cost;
+                    if (cost < min_cost) {
+                        min_cost = cost;
+                        best_sol = sol;
+                        dump(min_cost);
                     }
                 }
-                if (prev_cost < min_cost) {
-                    min_cost = prev_cost;
-                    best_sol = sol;
-                    dump(min_cost, best_sol);
+                else {
+                    std::swap(sol[hid1][tidx1], sol[hid2][tidx2]);
                 }
             }
 
@@ -672,7 +675,7 @@ namespace NSolver {
             }
         }
 
-        void update_pet_status() {
+        void update_cap_task_status() {
 
             // 捕獲判定
             UnionFind tree(NN);
@@ -695,7 +698,7 @@ namespace NSolver {
                 if (tree.size(pet.pos.idx) <= capture_thresh) {
                     pet.is_captured = true;
                     pet.task->is_completed = true;
-                    if (pet.type == Pet::Type::DOG) dump("captured!", turn, (pet.task->assignee ? pet.task->assignee->stringify() : "null"), pet, tree.size(pet.pos.idx));
+                    dump("captured!", turn, (pet.task->assignee ? pet.task->assignee->stringify() : "null"), pet, tree.size(pet.pos.idx));
                     if (pet.task->assignee) {
                         pet.task->assignee->task = nullptr;
                         pet.task->assignee = nullptr;
@@ -777,6 +780,54 @@ namespace NSolver {
             return d2C[d];
         }
 
+        void update_seq_task_status() {
+            for (auto& human : humans) {
+                bool updated = true;
+                while (updated) {
+                    updated = false;
+                    if (!human.task || human.task->type != Task::Type::SEQ) break;
+                    auto stask = reinterpret_cast<SeqTask*>(human.task);
+                    if (stask->actions.empty()) {
+                        stask->is_completed = true;
+                        stask->assignee = nullptr;
+                        human.task = stask->next_task;
+                        updated = true;
+                        dump(turn, "seq task completed!", human);
+                        continue;
+                    }
+                    const auto& action = stask->actions.front();
+                    auto atype = action.get_type();
+                    if (atype == Action::Type::MOVE) {
+                        auto to = action.get_pos();
+                        auto dist = bfs(human.pos);
+                        if (dist[to.idx] == inf) {
+                            // 到達不能
+                            stask->actions.clear();
+                            stask->is_completed = true;
+                            stask->assignee = nullptr;
+                            human.task = stask->next_task;
+                            updated = true;
+                            dump(turn, "seq task aborted!", human);
+                            continue;
+                        }
+                        if (human.pos == to) {
+                            stask->actions.pop_front();
+                            updated = true;
+                            continue;
+                        }
+                    }
+                    else if (atype == Action::Type::BLOCK) {
+                        int d = action.get_dir();
+                        if (is_blocked[human.pos.moved(d).idx]) {
+                            stask->actions.pop_front();
+                            updated = true;
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+
         // 柵の設置
         char resolve_block(const Human& human, const Action& action) {
             assert(action.get_type() == Action::Type::BLOCK);
@@ -784,10 +835,13 @@ namespace NSolver {
             auto pos = human.pos.moved(d);
             if (can_block(pos)) {
                 is_blocked[pos.idx] = true;
-                update_pet_status();
+                // block を置いたことで生じる影響の解決
+                update_seq_task_status();
+                update_cap_task_status();
                 //show();
                 return d2c[d];
             }
+            update_seq_task_status();
             return '.';
         }
 
@@ -917,54 +971,6 @@ namespace NSolver {
             return true;
         }
 
-        void update_queue(Human& human) {
-            auto& [id, pos, task] = human;
-            if (!task || task->type != Task::Type::SEQ) return;
-            auto stask = reinterpret_cast<SeqTask*>(task);
-            auto& qu = stask->actions;
-            while (!qu.empty()) {
-                bool updated = false;
-                const auto& act = qu.front();
-                auto type = act.get_type();
-                switch (type) {
-                case Action::Type::MOVE:
-                {
-                    if (pos == act.get_pos()) {
-                        qu.pop_front();
-                        updated = true;
-                    }
-                    break;
-                }
-                case Action::Type::BLOCK:
-                {
-                    if (is_blocked[pos.moved(act.get_dir()).idx]) {
-                        qu.pop_front();
-                        updated = true;
-                    }
-                    break;
-                }
-                case Action::Type::WAIT:
-                {
-                    assert(false);
-                    break;
-                }
-                }
-                if (!updated) break;
-            }
-            if (qu.empty()) {
-                stask->assignee = nullptr;
-                stask->is_completed = true;
-                human.task = stask->next_task;
-                dump(turn, "seq task completed!", human);
-            }
-        }
-
-        void update_queue() {
-            for (auto& human : humans) {
-                update_queue(human);
-            }
-        }
-
         void assign_tasks() {
 
             // rearrange capture task
@@ -1070,13 +1076,14 @@ namespace NSolver {
             if (!dog_exists) return;
             if (dog_kill_completed) return;
             if (!dog_kill_mode) {
-                // seq task 0 が終了している
+                // 全 seq task が終了している
                 // 犬を除く killzone にいないペットは全捕獲済
-                if (!seq_tasks[0].is_completed) return;
-                for (const auto& pet : pets) {
-                    if (pet.type == Pet::Type::DOG || is_zone[pet.pos.idx]) continue;
-                    if (!pet.is_captured) return;
-                }
+                if (!all_seq_task_completed()) return;
+                //if (!seq_tasks[0].is_completed) return;
+                //for (const auto& pet : pets) {
+                //    if (pet.type == Pet::Type::DOG || is_zone[pet.pos.idx]) continue;
+                //    if (!pet.is_captured) return;
+                //}
                 dog_kill_mode = true;
                 dump(turn, "dog kill mode start!");
                 stats.turn_dogkill_start = turn;
@@ -1214,8 +1221,7 @@ namespace NSolver {
                 }
             }
 
-            assign_tasks();
-            update_queue();
+            update_seq_task_status();
             update_stats();
             while (turn < MAX_TURN) {
                 toggle_dog_kill_mode();
@@ -1224,7 +1230,7 @@ namespace NSolver {
                 else actions = resolve_actions();
                 cout << actions << endl;
                 load_pet_moves();
-                update_queue();
+                update_seq_task_status();
                 assign_tasks();
 
                 turn++;
