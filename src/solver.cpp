@@ -1,9 +1,9 @@
 #include <bits/stdc++.h>
 #include <random>
 #ifdef _MSC_VER
-#define ENABLE_VIS
-#define ENABLE_DUMP
-#define ENABLE_STATS_DUMP
+//#define ENABLE_VIS
+//#define ENABLE_DUMP
+//#define ENABLE_STATS_DUMP
 #endif
 #ifdef _MSC_VER
 #include <ppl.h>
@@ -1072,18 +1072,61 @@ namespace NSolver {
             return tasks;
         }
 
+        bool all_dog_captured() const {
+            for (const auto& pet : pets) if (pet.type == Pet::Type::DOG && !pet.is_captured) return false;
+            return true;
+        }
+
         void toggle_dog_kill_mode() {
             if (!dog_exists) return;
             if (dog_kill_completed) return;
             if (!dog_kill_mode) {
                 // 全 seq task が終了している
-                // 犬を除く killzone にいないペットは全捕獲済
                 if (!all_seq_task_completed()) return;
-                //if (!seq_tasks[0].is_completed) return;
-                //for (const auto& pet : pets) {
-                //    if (pet.type == Pet::Type::DOG || is_zone[pet.pos.idx]) continue;
-                //    if (!pet.is_captured) return;
-                //}
+                // この時点で犬が全部捕獲されていたら (30,2) に block を置くタスクを発行
+                // (30,2) に最も近い人間の捕獲タスクを（あれば）キャンセルして割当て
+                if (all_dog_captured()) {
+                    SeqTask task;
+                    task.actions.push_back(Action::move(coord(30, 1)));
+                    task.actions.push_back(Action::block(0));
+                    task.type = Task::Type::SEQ;
+                    task.assignee = nullptr;
+                    task.is_completed = false;
+                    task.next_task = nullptr;
+                    seq_tasks.push_back(task);
+                    dog_kill_completed = true;
+                    stats.turn_dogkill_end = turn;
+                    dump(turn, "all dogs are already captured!");
+                    Human* nearest = &humans[0];
+                    {
+                        auto dist = bfs(coord(30, 2));
+                        int min_dist = dist[humans[0].pos.idx];
+                        for (int hid = 1; hid < humans.size(); hid++) {
+                            int d = dist[humans[hid].pos.idx];
+                            if (d < min_dist) {
+                                nearest = &humans[hid];
+                                min_dist = d;
+                            }
+                        }
+                    }
+                    if (nearest->task) {
+                        if (nearest->task->type == Task::Type::SEQ) {
+                            auto stask = reinterpret_cast<SeqTask*>(nearest->task);
+                            while (stask->next_task != nullptr) {
+                                stask = stask->next_task;
+                            }
+                            stask->next_task = &seq_tasks.back();
+                        }
+                        else {
+                            nearest->task->assignee = nullptr;
+                            nearest->task = &seq_tasks.back();
+                        }
+                    }
+                    else {
+                        nearest->task = &seq_tasks.back();
+                    }
+                    return;
+                }
                 dog_kill_mode = true;
                 dump(turn, "dog kill mode start!");
                 stats.turn_dogkill_start = turn;
