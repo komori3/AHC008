@@ -1,11 +1,13 @@
+#define _CRT_NONSTDC_NO_WARNINGS
 #include <bits/stdc++.h>
 #include <random>
 #ifdef _MSC_VER
-#define ENABLE_VIS
-#define ENABLE_DUMP
+//#define ENABLE_VIS
+//#define ENABLE_DUMP
 //#define ENABLE_STATS_DUMP
 #endif
 #ifdef _MSC_VER
+#include <conio.h>
 #include <ppl.h>
 #ifdef ENABLE_VIS
 #include <opencv2/core.hpp>
@@ -475,46 +477,24 @@ namespace NSolver {
             int nh = humans.size();
             int nt = tasks.size();
 
-            // タスク 5 つ
-            // 5 人以上
-            // 割当全探索
-
-            // 初期盤面における (人 -> タスク開始位置) の各移動コスト
-            auto idist = make_vector(inf, nh, nt);
-            for (int i = 0; i < nh; i++) {
-                auto hpos = humans[i].pos;
-                for (int j = 0; j < nt; j++) {
-                    auto tpos = tasks[j]->start_pos();
-                    idist[i][j] = hpos.distance(tpos);
+            vector<vector<int>> res(nh);
+            {
+                vector<int> nts(nh, 0);
+                int rem = nt;
+                while (rem) {
+                    for (int hid = 0; hid < nh; hid++) {
+                        nts[hid]++;
+                        rem--;
+                        if (!rem) break;
+                    }
+                }
+                int tid = 0;
+                for (int hid = 0; hid < nh; hid++) {
+                    for (int i = 0; i < nts[hid]; i++) {
+                        res[hid].push_back(tid++);
+                    }
                 }
             }
-
-            vector<int> hids(nh);
-            vector<int> best_assign;
-            int min_cost = inf;
-            std::iota(hids.begin(), hids.end(), 0);
-            do {
-                vector<int> com(hids.begin(), hids.begin() + nt);
-                do {
-                    // task[i] に com[i] を割り当て
-                    int cost = 0;
-                    for (int tid = 0; tid < nt; tid++) {
-                        auto from = humans[com[tid]].pos;
-                        auto to = tasks[tid]->start_pos();
-                        chmax(cost, from.distance(to) + (int)tasks[tid]->actions.size());
-                    }
-                    if (chmin(min_cost, cost)) {
-                        best_assign = com;
-                        dump(min_cost);
-                    }
-                } while (std::next_permutation(com.begin(), com.end()));
-            } while (next_combination(hids.begin(), hids.begin() + nt, hids.end()));
-
-            vector<vector<int>> res(nh);
-            for (int tid = 0; tid < nt; tid++) {
-                res[best_assign[tid]].push_back(tid);
-            }
-
             return res;
         }
     };
@@ -859,26 +839,26 @@ namespace NSolver {
 
             string actions(humans.size(), '.');
 
-            auto& hl = humans[0];
-            auto& hr = humans[1];
+            auto& hu = humans[0];
+            auto& hd = humans[1];
 
-            if (!can_block(hl.pos.moved(0)) || !can_block(hr.pos.moved(2))) return actions;
+            if (!can_block(hu.pos.moved(3)) || !can_block(hd.pos.moved(1))) return actions;
 
-            is_blocked[hl.pos.moved(0).idx] = is_blocked[hr.pos.moved(2).idx] = true;
+            is_blocked[hu.pos.moved(3).idx] = is_blocked[hd.pos.moved(1).idx] = true;
 
-            auto dist = bfs(hl.pos.moved(0).moved(0));
+            auto dist = bfs(hu.pos.moved(3).moved(3));
             for (const auto& pet : pets) {
                 if (pet.type != Pet::Type::DOG) continue;
                 if (dist[pet.pos.idx] == inf) {
-                    is_blocked[hl.pos.moved(0).idx] = is_blocked[hr.pos.moved(2).idx] = false;
+                    is_blocked[hu.pos.moved(3).idx] = is_blocked[hd.pos.moved(1).idx] = false;
                     return actions;
                 }
             }
 
-            is_blocked[hl.pos.moved(0).idx] = is_blocked[hr.pos.moved(2).idx] = false;
+            is_blocked[hu.pos.moved(3).idx] = is_blocked[hd.pos.moved(1).idx] = false;
 
-            actions[hl.id] = resolve_block(hl, Action::block(0));
-            actions[hr.id] = resolve_block(hr, Action::block(2));
+            actions[hu.id] = resolve_block(hu, Action::block(3));
+            actions[hd.id] = resolve_block(hd, Action::block(1));
 
             return actions;
         }
@@ -893,69 +873,69 @@ namespace NSolver {
                 // TODO: 中央・左右同時捕獲
 
                 // 1. 中央捕獲
-                auto& hl = humans[group[0]];
-                auto& hr = humans[group[1]];
-                if (can_block(hl.pos.moved(0)) && can_block(hr.pos.moved(2))) {
-                    is_blocked[hl.pos.moved(0).idx] = true;
-                    if (can_trap(hr, 2, 30)) {
-                        is_blocked[hl.pos.moved(0).idx] = false;
-                        actions[hl.id] = resolve_block(hl, Action::block(0));
-                        actions[hr.id] = resolve_block(hr, Action::block(2));
+                auto& hu = humans[group[0]];
+                auto& hd = humans[group[1]];
+                if (can_block(hu.pos.moved(3)) && can_block(hd.pos.moved(1))) {
+                    is_blocked[hu.pos.moved(3).idx] = true;
+                    if (can_trap(hd, 1, 30)) {
+                        is_blocked[hu.pos.moved(3).idx] = false;
+                        actions[hu.id] = resolve_block(hu, Action::block(3));
+                        actions[hd.id] = resolve_block(hd, Action::block(1));
                         continue;
                     }
-                    is_blocked[hl.pos.moved(0).idx] = false;
+                    is_blocked[hu.pos.moved(3).idx] = false;
                 }
 
-                // 2,3. 左右捕獲
+                // 2,3. 上下捕獲
                 bool trapped = false;
-                if (can_trap(hl, 2, 30)) {
-                    actions[hl.id] = resolve_block(hl, Action::block(2));
+                if (can_trap(hu, 1, 30)) {
+                    actions[hu.id] = resolve_block(hu, Action::block(1));
                     trapped = true;
                 }
-                if (can_trap(hr, 0, 30)) {
-                    actions[hr.id] = resolve_block(hr, Action::block(0));
+                if (can_trap(hd, 3, 30)) {
+                    actions[hd.id] = resolve_block(hd, Action::block(3));
                     trapped = true;
                 }
 
                 if (trapped) continue;
 
-                // 4. 上下移動
-                if (group_move_dirs[gid] == 1) {
-                    // 上へ移動
-                    if (!is_blocked[hl.pos.moved(1).idx] && !is_blocked[hr.pos.moved(1).idx]) {
+                // 4. 左右移動
+                if (group_move_dirs[gid] == 0) {
+                    // 右へ移動
+                    if (!is_blocked[hu.pos.moved(0).idx] && !is_blocked[hd.pos.moved(0).idx]) {
                         // できる
                         for (int hid : group) {
                             auto& h = humans[hid];
-                            actions[h.id] = resolve_move(h, Action::move(h.pos.moved(1)));
+                            actions[h.id] = resolve_move(h, Action::move(h.pos.moved(0)));
                         }
                     }
-                    else if (!is_blocked[hl.pos.moved(3).idx] && !is_blocked[hr.pos.moved(3).idx]) {
+                    else if (!is_blocked[hu.pos.moved(2).idx] && !is_blocked[hd.pos.moved(2).idx]) {
                         // できない
-                        group_move_dirs[gid] = 3;
+                        group_move_dirs[gid] = 2;
                         for (int hid : group) {
                             auto& h = humans[hid];
-                            actions[h.id] = resolve_move(h, Action::move(h.pos.moved(3)));
+                            actions[h.id] = resolve_move(h, Action::move(h.pos.moved(2)));
                         }
                     }
                     else {
                         assert(false);
                     }
                 }
-                else if (group_move_dirs[gid] == 3) {
-                    // 上へ移動
-                    if (!is_blocked[hl.pos.moved(3).idx] && !is_blocked[hr.pos.moved(3).idx]) {
+                else if (group_move_dirs[gid] == 2) {
+                    // 左へ移動
+                    if (!is_blocked[hu.pos.moved(2).idx] && !is_blocked[hd.pos.moved(2).idx]) {
                         // できる
                         for (int hid : group) {
                             auto& h = humans[hid];
-                            actions[h.id] = resolve_move(h, Action::move(h.pos.moved(3)));
+                            actions[h.id] = resolve_move(h, Action::move(h.pos.moved(2)));
                         }
                     }
-                    else if (!is_blocked[hl.pos.moved(1).idx] && !is_blocked[hr.pos.moved(1).idx]) {
+                    else if (!is_blocked[hu.pos.moved(0).idx] && !is_blocked[hd.pos.moved(0).idx]) {
                         // できない
-                        group_move_dirs[gid] = 1;
+                        group_move_dirs[gid] = 0;
                         for (int hid : group) {
                             auto& h = humans[hid];
-                            actions[h.id] = resolve_move(h, Action::move(h.pos.moved(1)));
+                            actions[h.id] = resolve_move(h, Action::move(h.pos.moved(0)));
                         }
                     }
                     else {
@@ -1011,16 +991,21 @@ namespace NSolver {
                 return res;
             };
 
-            {
-                string cmd = rep(7, "lR") + "luRRuRR" + rep(7, "lR") + "luRRuRR" + rep(6, "lR") + "lDuDDL" + rep(7, "rL") + "ruLLuLL" + rep(7, "rL") + "ruLLuLL" + rep(6, "rL") + "rDu";
-                for (int i = 0; i < 4; i++) {
-                    tasks.push_back(generate_seq_task(coord(i * 6 + 3, 2), cmd));
-                }
-            }
-            {
-                string cmd = rep(7, "lR") + "luDDdUUdRRuDDdUUdRR" + rep(7, "lR") + "luDDdUUdRRuDDdUUdRR" + rep(6, "lR") + "lDu";
-                tasks.push_back(generate_seq_task(coord(27, 2), cmd));
-            }
+            tasks.push_back(generate_seq_task(coord(1, 27), "rDDulDDurDDulDDuRRrLLrLLLrUUdlUUdrUUdlUUdr"));
+            tasks.push_back(generate_seq_task(coord(1, 21), "rDDulDDurDDulDDurLLLrUUdlUUdrUUdlUUdr"));
+            tasks.push_back(generate_seq_task(coord(1, 15), "rDDulDDurDDulDDurLLLrUUdlUUdrUUdlUUdr"));
+            tasks.push_back(generate_seq_task(coord(1, 9), "rDDulDDurDDulDDurLLLrUUdlUUdrUUdlUUdr"));
+            tasks.push_back(generate_seq_task(coord(1, 3), "rDDulDDurDDulDDurLlDDlRDurDDulDDurDDulDDuLlRRRl"));
+            tasks.push_back(generate_seq_task(coord(20, 6), "rUUdlUUdrUUdlUUdrURlRRDurDDulDDurDDulDDuRRl"));
+            tasks.push_back(generate_seq_task(coord(20, 12), "rUUdlUUdrUUdlUUdrURlRRDurDDulDDurDDulDDuRRl"));
+            tasks.push_back(generate_seq_task(coord(20, 18), "rUUdlUUdrUUdlUUdrURlRRDurDDulDDurDDulDDuRRl"));
+            tasks.push_back(generate_seq_task(coord(20, 24), "rUUdlUUdrUUdlUUdrURlRRRRrLLDurDDulDDurDDulDDuRRrl"));
+            tasks.push_back(generate_seq_task(coord(22, 29), "rLLrDDulDDurDDulDDurLLLrUUdlUUdrUUdlUUdr"));
+            tasks.push_back(generate_seq_task(coord(22, 21), "rDDulDDurDDulDDurLLLrUUdlUUdrUUdlUUdr"));
+            tasks.push_back(generate_seq_task(coord(22, 15), "rDDulDDurDDulDDurLLLrUUdlUUdrUUdlUUdr"));
+            tasks.push_back(generate_seq_task(coord(22, 9), "rDDulDDurDDulDDurLLLrUUdlUUdrUUdlUUdr"));
+            tasks.push_back(generate_seq_task(coord(22, 3), "rLlRDDulDDurDDulDDur"));
+
             return tasks;
         }
 
@@ -1093,7 +1078,7 @@ namespace NSolver {
                         task = task->next_task;
                     }
                 }
-                coord ep[2] = { {16,10}, {16,21} };
+                coord ep[2] = { {10,14}, {21,14} };
                 // 偶奇で移動
                 for (int hid = 0; hid < humans.size(); hid++) {
                     auto& human = humans[hid];
@@ -1131,7 +1116,9 @@ namespace NSolver {
                 show();
             }
 
-            // group task
+            dump(turn, "all_seq_task_completed");
+
+            // dogkill
             while (turn < MAX_TURN && !all_dogs_captured()) {
                 string actions;
                 actions = resolve_dogkill_actions();
@@ -1145,7 +1132,8 @@ namespace NSolver {
                 show();
             }
 
-            dump(turn, "all_seq_task_completed");
+            dump(turn, "all dogs are killed.");
+            
             {
                 int num_groups = humans.size() / 2;
                 groups.resize(num_groups);
@@ -1159,7 +1147,7 @@ namespace NSolver {
                 dump(groups);
                 group_move_dirs.resize(num_groups);
                 for (int gid = 0; gid < num_groups; gid++) {
-                    group_move_dirs[gid] = (gid % 2 == 0) ? 1 : 3;
+                    group_move_dirs[gid] = (gid % 2 == 0) ? 0 : 2;
                 }
                 dump(group_move_dirs);
             }
@@ -1274,7 +1262,102 @@ namespace NSolver {
 
 }
 
+#ifdef _MSC_VER
+void cmd_generator() {
+    constexpr int dy[] = { 0, -1, 0, 1 };
+    constexpr int dx[] = { 1, 0, -1, 0 };
+    int c2d[256];
+    c2d['r'] = c2d['R'] = 0;
+    c2d['u'] = c2d['U'] = 1;
+    c2d['l'] = c2d['L'] = 2;
+    c2d['d'] = c2d['D'] = 3;
+    string supper = "RULD";
+    string slower = "ruld";
+
+    char board[32][33] = {};
+    for (int y = 0; y < 32; y++) {
+        for (int x = 0; x < 32; x++) {
+            board[y][x] = '#';
+        }
+    }
+    for (int y = 1; y <= 30; y++) {
+        for (int x = 1; x <= 30; x++) {
+            board[y][x] = '.';
+        }
+    }
+
+    string cmd;
+
+    int sy, sx;
+    int y, x;
+    cerr << "position: ";
+    cin >> y >> x;
+    sy = y; sx = x;
+
+    auto print = [&]() {
+        std::ostringstream oss;
+        oss << "tasks.push_back(generate_seq_task(coord(" << sy << ',' << sx << "), \"" << cmd << "\"));\n";
+        for (const auto& line : board) oss << line << '\n';
+        cerr << oss.str();
+    };
+
+    board[y][x] = '*';
+
+    while (true) {
+        print();
+        char c = getch();
+        if (c == 13) break;
+        if (c == 8) {
+            if (!cmd.empty()) {
+                char pc = cmd.back(); cmd.pop_back();
+                int d = c2d[pc];
+                if (supper.find(pc) != string::npos) {
+                    board[y][x] = '.';
+                    x -= dx[d];
+                    y -= dy[d];
+                    board[y][x] = '*';
+                }
+                else if (slower.find(pc) != string::npos) {
+                    board[y + dy[d]][x + dx[d]] = '.';
+                }
+            }
+        }
+        else if (c == 'x') {
+            sy = y; sx = x;
+            for (int y = 1; y <= 30; y++) {
+                for (int x = 1; x <= 30; x++) {
+                    board[y][x] = '.';
+                }
+            }
+            board[y][x] = '*';
+            cmd.clear();
+        }
+        else if (supper.find(c) != string::npos) {
+            int d = c2d[c];
+            if (board[y + dy[d]][x + dx[d]] == '.') {
+                board[y][x] = '.';
+                y += dy[d];
+                x += dx[d];
+                board[y][x] = '*';
+                cmd += c;
+            }
+        }
+        else if (slower.find(c) != string::npos) {
+            int d = c2d[c];
+            if (board[y + dy[d]][x + dx[d]] == '.') {
+                board[y + dy[d]][x + dx[d]] = '#';
+                cmd += c;
+            }
+        }
+    }
+
+    exit(1);
+}
+#endif
+
 int main() {
+
+    //cmd_generator();
 
 #ifdef HAVE_OPENCV_HIGHGUI
     cv::utils::logging::setLogLevel(cv::utils::logging::LogLevel::LOG_LEVEL_SILENT);
