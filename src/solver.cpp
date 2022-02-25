@@ -1,6 +1,8 @@
+#define _CRT_NONSTDC_NO_WARNINGS
 #include <bits/stdc++.h>
 #include <random>
 #ifdef _MSC_VER
+#include <conio.h>
 //#define ENABLE_VIS
 //#define ENABLE_DUMP
 //#define ENABLE_STATS_DUMP
@@ -248,36 +250,36 @@ namespace NSolver {
 
     constexpr char board_str[N][N + 1] = {
 "################################",
-"#X..#..#..#..#..#..#..#..#..#..#",
-"#.X#..#..#..#..#..#..#..#..#..##",
-"#..X.#..#..#..#..#..#..#..#..#.#",
-"##..X..#..#..#..#..#..#..#..#..#",
-"#..#.X#..#..#..#..#..#..#..#..##",
-"#.#...X.#..#..#..#..#..#..#..#.#",
-"##..#..X..#..#..#..#..#..#..#..#",
-"#..#..#.X#..#..#..#..#..#..#..##",
-"#.#..#...X.#..#..#..#..#..#..#.#",
-"##..#..#..X..#..#..#..#..#..#..#",
-"#..#..#..#.X#..#..#..#..#..#..##",
-"#.#..#..#...X.#..#..#..#..#..#.#",
-"##..#..#..#..X..#..#..#..#..#..#",
-"#..#..#..#..#.X#..#..#..#..#..##",
-"#.#..#..#..#...X.#..#..#..#..#.#",
-"##..#..#..#..#@@X..#..#..#..#..#",
-"#..#..#..#..#@@#@X#..#..#..#..##",
-"#.#..#..#..#@@#@@.X.#..#..#..#.#",
-"##..#..#..#@@#@@#..X..#..#..#..#",
-"#..#..#..#@@#@@#..#.X#..#..#..##",
-"#.#..#..#@@#@@#..#...X.#..#..#.#",
-"##..#..#@@#@@#..#..#..X..#..#..#",
-"#..#..#@@#@@#..#..#..#.X#..#..##",
-"#.#..#@@#@@#..#..#..#...X.#..#.#",
-"##..#@@#@@#..#..#..#..#..X..#..#",
-"#..#@@#@@#..#..#..#..#..#.X#..##",
-"#.#@@#@@#..#..#..#..#..#...X.#.#",
-"##@@#@@#..#..#..#..#..#..#..X..#",
-"#@@#@@#..#..#..#..#..#..#..#.X.#",
-"#@@@@#..#..#..#..#..#..#..#...X#",
+"#.....#...#...#...#...#...#...##",
+"##...#...#...#...#...#...#...#.#",
+"#.......#...#...#...#...#...#..#",
+"#..#...#...#...#...#...#...#...#",
+"#.#.......#...#...#...#...#...##",
+"##...#...#...#...#...#...#...#.#",
+"#...#.......#...#...#...#...#..#",
+"#..#...#...#...#...#...#...#...#",
+"#.#...#.......#...#...#...#...##",
+"##...#...#...#...#...#...#...#.#",
+"#...#...#.......#...#...#...#..#",
+"#..#...#...#...#...#...#...#...#",
+"#.#...#...#.......#...#...#...##",
+"##...#...#...#...#...#...#...#.#",
+"#...#...#...#.......#...#...#..#",
+"#..#...#...#...#...#...#...#...#",
+"#.#...#...#...#.......#...#...##",
+"##...#...#...#...#...#...#...#.#",
+"#...#...#...#...#.......#...#..#",
+"#..#...#...#...#...#...#...#...#",
+"#.#...#...#...#...#.......#...##",
+"##...#...#...#...#...#...#...#.#",
+"#...#...#...#...#...#.......#..#",
+"#..#...#...#...#...#...#...#...#",
+"#.#...#...#...#...#...#.......##",
+"##...#...#...#...#...#...#...#.#",
+"#...#...#...#...#...#...#......#",
+"#..#...#...#...#...#...#...#...#",
+"#.#...#...#...#...#...#...#....#",
+"#....#...#...#...#...#...#...#.#",
 "################################"
     };
 
@@ -427,6 +429,8 @@ namespace NSolver {
         vector<vector<int>> run() {
             int nh = humans.size();
             int nt = tasks.size();
+
+            dump(nh, nt);
 
             // 初期盤面における (人 -> タスク開始位置) の各移動コスト
             auto idist = make_vector(inf, nh, nt);
@@ -749,6 +753,9 @@ namespace NSolver {
             assert(spos != gpos);
 
             auto dist = bfs(gpos);
+            if (dist[spos.idx] == inf) {
+                dump(human, action);
+            }
             assert(dist[spos.idx] != inf);
 
             // 最短経路移動方向の候補を調べる
@@ -1035,38 +1042,32 @@ namespace NSolver {
             };
 
             if (dog_exists) {
-                {
-                    string cmd = "rdLuDdLuDdLuDdLuDdLuDdLuDdLuDdLuDdLuDdLuDdLuDdLuDLuD";
-                    cmd += "RRRRR" + rep(11, "lRrU") + "l";
-                    tasks.push_back(generate_seq_task({ 17, 14 }, cmd));
-                }
-
-                for (int k = 0; k < 4; k++) {
-                    tasks.push_back(generate_seq_task({ 6 * k + 6 , 1 }, rep(3 * k + 1, "dUuR") + "dr"));
-                }
-                for (int k = 0; k < 5; k++) {
-                    tasks.push_back(generate_seq_task({ 1, 6 * k + 6 }, rep(3 * k + 2, "rLlD") + "r"));
-                }
-                for (int k = 0; k < 3; k++) {
-                    tasks.push_back(generate_seq_task({ 30, 24 - 6 * k }, rep(3 * k + 2, "lRrU") + "l"));
-                }
-                for (int k = 0; k < 4; k++) {
-                    tasks.push_back(generate_seq_task({ 24 - 6 * k, 30 }, rep(3 * k + 2, "uDdL") + "ul"));
-                }
+                tasks.push_back(generate_seq_task({ 5,1 }, "drURrUUlURRRRRRRrLLlDRrLLlDRrd"));
+                tasks.push_back(generate_seq_task({ 13,1 }, "drURrURrULlRRrULlRRrULlRRrLUlu"));
+                tasks.push_back(generate_seq_task({ 21,1 }, "drURrURrULlRRrULlRRrULlRRrULlRRrULlRRrULlRRrULlRRrULlu"));
+                tasks.push_back(generate_seq_task({ 15,13 }, "ulDRrLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrdLLDDrDRRRrURrURrURrURrURrURrURrURrURrURrURrURr"));
+                tasks.push_back(generate_seq_task({ 30,10 }, "lRRrULlRRrULlRRrULlRRrULlRRrULlRRrULlRRrULlRRrULlRRrULlu"));
+                tasks.push_back(generate_seq_task({ 30,18 }, "lRRrULlRRrULlRRrULlRRrULlRRrULlu"));
+                tasks.push_back(generate_seq_task({ 1,17 }, "rLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrd"));
+                tasks.push_back(generate_seq_task({ 1,25 }, "rLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrd"));
+                tasks.push_back(generate_seq_task({ 2,30 }, "uDDdLUuDDdLUuDDdLUuDDdLUuDDdLUuDDdLUuDDdLUuDDdLUuDDdLUuDDdLUuDDdLUuDDdLUul"));
+                tasks.push_back(generate_seq_task({ 10,30 }, "uDDdLUuDDdLUuDDdLUuDDdLUuDDdLUuDDdLUuDDdLUuDDdLUul"));
+                tasks.push_back(generate_seq_task({ 18,30 }, "uDDdLUuDDdLUuDDdLUuDDdLUul"));
+                tasks.push_back(generate_seq_task({ 30,26 }, "lRRrULluRRRUUUlu"));
             }
             else {
-                for (int k = 0; k < 5; k++) {
-                    tasks.push_back(generate_seq_task({ 6 * k + 6 , 1 }, rep(3 * k + 1, "dUuR") + "dr"));
-                }
-                for (int k = 0; k < 5; k++) {
-                    tasks.push_back(generate_seq_task({ 1, 6 * k + 6 }, rep(3 * k + 2, "rLlD") + "r"));
-                }
-                for (int k = 0; k < 4; k++) {
-                    tasks.push_back(generate_seq_task({ 30, 24 - 6 * k }, rep(3 * k + 2, "lRrU") + "l"));
-                }
-                for (int k = 0; k < 4; k++) {
-                    tasks.push_back(generate_seq_task({ 24 - 6 * k, 30 }, rep(3 * k + 2, "uDdL") + "ul"));
-                }
+                tasks.push_back(generate_seq_task({ 1,5 }, "rdLLLDlDDrdLDd"));
+                tasks.push_back(generate_seq_task({ 13,1 }, "drURrURrULlRRrULlRRrULlRRrLUlu"));
+                tasks.push_back(generate_seq_task({ 1,13 }, "rLLlDRrLLlDRrLLlDRrLLlDRrd"));
+                tasks.push_back(generate_seq_task({ 21,1 }, "drURrURrULlRRrULlRRrULlRRrULlRRrULlRRrULlRRrULlRRrULlu"));
+                tasks.push_back(generate_seq_task({ 1,21 }, "rLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrd"));
+                tasks.push_back(generate_seq_task({ 29,1 }, "drURrURrULlRRrULlRRrULlRRrULlRRrULlRRrULlRRrULlRRrULlRRrULlRRrULlRRrULlRRrULlu"));
+                tasks.push_back(generate_seq_task({ 1,29 }, "rLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrLLlDRrLLlRDrd"));
+                tasks.push_back(generate_seq_task({ 30,6 }, "lRRrULlRRrULlRRrULlRRrULlRRrULlRRrULlRRrULlRRrULlRRrULlRRrULlRRrULlu"));
+                tasks.push_back(generate_seq_task({ 6,30 }, "uDDdULuDDdLUuDDdLUuDDdLUuDDdLUuDDdLUuDDdLUuDDdLUuDDdLUuDDdLUul"));
+                tasks.push_back(generate_seq_task({ 30,14 }, "lRRrULlRRrULlRRrULlRRrULlRRrULlRRrULlRRrULlu"));
+                tasks.push_back(generate_seq_task({ 14,30 }, "uDDdLUuDDdLUuDDdLUuDDdLUuDDdLUuDDdLUul"));
+                tasks.push_back(generate_seq_task({ 22,30 }, "uDDdLUuDDdLUulDDLLlDLlDLlDLlDLlRRrURrURrURRDRDd"));
             }
 
             return tasks;
@@ -1149,8 +1150,8 @@ namespace NSolver {
 
             auto pos1 = coord(17, 13);
             auto pos2 = coord(27, 3);
-            auto b1 = coord(18, 13);
-            auto b2 = coord(27, 4);
+            auto b1 = coord(17, 12);
+            auto b2 = coord(26, 3);
 
             auto all_moved = [&]() {
                 for (int i = 0; i < humans.size() - 1; i++) {
@@ -1178,8 +1179,8 @@ namespace NSolver {
             string actions(humans.size(), '.');
 
             if (all_moved() && all_capture()) {
-                actions[0] = resolve_block(humans[0], Action::block(3));
-                actions.back() = resolve_block(humans.back(), Action::block(0));
+                actions[0] = resolve_block(humans[0], Action::block(2));
+                actions.back() = resolve_block(humans.back(), Action::block(1));
                 return actions;
             }
 
@@ -1250,6 +1251,8 @@ namespace NSolver {
             dump(humans.size(), pets.size());
 
             show();
+
+            dump("hoge");
 
             { // seq task assign
                 auto assign = SeqTaskScheduler(humans, seq_tasks).run();
@@ -1383,11 +1386,103 @@ namespace NSolver {
 
 }
 
+#ifdef _MSC_VER
+void cmd_generator() {
+    constexpr int dy[] = {0, -1, 0, 1};
+    constexpr int dx[] = {1, 0, -1, 0};
+    int c2d[256];
+    c2d['r'] = c2d['R'] = 0;
+    c2d['u'] = c2d['U'] = 1;
+    c2d['l'] = c2d['L'] = 2;
+    c2d['d'] = c2d['D'] = 3;
+    string supper = "RULD";
+    string slower = "ruld";
+
+    char board[32][33] = {};
+    for (int y = 0; y < 32; y++) {
+        for (int x = 0; x < 32; x++) {
+            board[y][x] = '#';
+        }
+    }
+    for (int y = 1; y <= 30; y++) {
+        for (int x = 1; x <= 30; x++) {
+            board[y][x] = '.';
+        }
+    }
+
+    string cmd;
+
+    auto print = [&]() {
+        std::ostringstream oss;
+        oss << "\ncmd: " << cmd << "\n\n";
+        for (const auto& line : board) oss << line << '\n';
+        cerr << oss.str();
+    };
+
+    int y, x;
+    cerr << "position: ";
+    cin >> y >> x;
+
+    board[y][x] = '*';
+
+    while (true) {
+        print();
+        char c = getch();
+        if (c == 13) break;
+        if (c == 8) {
+            if (!cmd.empty()) {
+                char pc = cmd.back(); cmd.pop_back();
+                int d = c2d[pc];
+                if (supper.find(pc) != string::npos) {
+                    board[y][x] = '.';
+                    x -= dx[d];
+                    y -= dy[d];
+                    board[y][x] = '*';
+                }
+                else if (slower.find(pc) != string::npos) {
+                    board[y + dy[d]][x + dx[d]] = '.';
+                }
+            }
+        }
+        else if (c == 'x') {
+            for (int y = 1; y <= 30; y++) {
+                for (int x = 1; x <= 30; x++) {
+                    board[y][x] = '.';
+                }
+            }
+            board[y][x] = '*';
+            cmd.clear();
+        }
+        else if (supper.find(c) != string::npos) {
+            int d = c2d[c];
+            if (board[y + dy[d]][x + dx[d]] == '.') {
+                board[y][x] = '.';
+                y += dy[d];
+                x += dx[d];
+                board[y][x] = '*';
+                cmd += c;
+            }
+        }
+        else if (slower.find(c) != string::npos) {
+            int d = c2d[c];
+            if (board[y + dy[d]][x + dx[d]] == '.') {
+                board[y + dy[d]][x + dx[d]] = '#';
+                cmd += c;
+            }
+        }
+    }
+
+    exit(1);
+}
+#endif
+
 int main() {
 
 #ifdef HAVE_OPENCV_HIGHGUI
     cv::utils::logging::setLogLevel(cv::utils::logging::LogLevel::LOG_LEVEL_SILENT);
 #endif
+
+    //cmd_generator();
 
     c2d['R'] = c2d['r'] = 0;
     c2d['U'] = c2d['u'] = 1;
