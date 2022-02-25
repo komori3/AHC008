@@ -1,8 +1,8 @@
 #include <bits/stdc++.h>
 #include <random>
 #ifdef _MSC_VER
-//#define ENABLE_VIS
-//#define ENABLE_DUMP
+#define ENABLE_VIS
+#define ENABLE_DUMP
 //#define ENABLE_STATS_DUMP
 #endif
 #ifdef _MSC_VER
@@ -229,6 +229,63 @@ struct UnionFind {
     }
 };
 
+// next_combination : http://yak-ex.blogspot.jp/2014/05/c-nextcombination.html
+namespace {
+
+    // possible implementation introduced at http://en.cppreference.com/w/cpp/algorithm/rotate with slight modification to handle parted ranges
+    template<typename FI>
+    void parted_rotate(FI first1, FI last1, FI first2, FI last2)
+    {
+        if (first1 == last1 || first2 == last2) return;
+        FI next = first2;
+        while (first1 != next) {
+            std::iter_swap(first1++, next++);
+            if (first1 == last1) first1 = first2;
+            if (next == last2) {
+                next = first2;
+            }
+            else if (first1 == first2) {
+                first2 = next;
+            }
+        }
+    }
+
+    template<typename BI>
+    bool next_combination_imp(BI first1, BI last1, BI first2, BI last2)
+    {
+        if (first1 == last1 || first2 == last2) return false;
+        auto target = last1; --target;
+        auto last_elem = last2; --last_elem;
+        // find right-most incrementable element: target
+        while (target != first1 && !(*target < *last_elem)) --target;
+        if (target == first1 && !(*target < *last_elem)) {
+            parted_rotate(first1, last1, first2, last2);
+            return false;
+        }
+        // find the next value to be incremented: *next
+        auto next = first2;
+        while (!(*target < *next)) ++next;
+        std::iter_swap(target++, next++);
+        parted_rotate(target, last1, next, last2);
+        return true;
+    }
+
+    // INVARIANT: is_sorted(first, mid) && is_sorted(mid, last)
+    template<typename BI>
+    inline bool next_combination(BI first, BI mid, BI last)
+    {
+        return next_combination_imp(first, mid, mid, last);
+    }
+
+    // INVARIANT: is_sorted(first, mid) && is_sorted(mid, last)
+    template<typename BI>
+    inline bool prev_combination(BI first, BI mid, BI last)
+    {
+        return next_combination_imp(mid, last, first, mid);
+    }
+
+}
+
 
 constexpr int MAX_TURN = 300;
 constexpr char d2C[5] = "RULD";
@@ -244,40 +301,39 @@ namespace NSolver {
     constexpr int N = 32;
     constexpr int NN = N * N;
     constexpr int dir[] = { 1, -N, -1, N };
-    constexpr int capture_thresh = 35;
 
     constexpr char board_str[N][N + 1] = {
 "################################",
-"#X..#..#..#..#..#..#..#..#..#..#",
-"#.X#..#..#..#..#..#..#..#..#..##",
-"#..X.#..#..#..#..#..#..#..#..#.#",
-"##..X..#..#..#..#..#..#..#..#..#",
-"#..#.X#..#..#..#..#..#..#..#..##",
-"#.#...X.#..#..#..#..#..#..#..#.#",
-"##..#..X..#..#..#..#..#..#..#..#",
-"#..#..#.X#..#..#..#..#..#..#..##",
-"#.#..#...X.#..#..#..#..#..#..#.#",
-"##..#..#..X..#..#..#..#..#..#..#",
-"#..#..#..#.X#..#..#..#..#..#..##",
-"#.#..#..#...X.#..#..#..#..#..#.#",
-"##..#..#..#..X..#..#..#..#..#..#",
-"#..#..#..#..#.X#..#..#..#..#..##",
-"#.#..#..#..#...X.#..#..#..#..#.#",
-"##..#..#..#..#@@X..#..#..#..#..#",
-"#..#..#..#..#@@#@X#..#..#..#..##",
-"#.#..#..#..#@@#@@.X.#..#..#..#.#",
-"##..#..#..#@@#@@#..X..#..#..#..#",
-"#..#..#..#@@#@@#..#.X#..#..#..##",
-"#.#..#..#@@#@@#..#...X.#..#..#.#",
-"##..#..#@@#@@#..#..#..X..#..#..#",
-"#..#..#@@#@@#..#..#..#.X#..#..##",
-"#.#..#@@#@@#..#..#..#...X.#..#.#",
-"##..#@@#@@#..#..#..#..#..X..#..#",
-"#..#@@#@@#..#..#..#..#..#.X#..##",
-"#.#@@#@@#..#..#..#..#..#...X.#.#",
-"##@@#@@#..#..#..#..#..#..#..X..#",
-"#@@#@@#..#..#..#..#..#..#..#.X.#",
-"#@@@@#..#..#..#..#..#..#..#...X#",
+"#........X.X........X.X........#",
+"#........#.#........#.#........#",
+"#########...########...#########",
+"#........X.X........X.X........#",
+"#........#.#........#.#........#",
+"#########...########...#########",
+"#........X.X........X.X........#",
+"#........#.#........#.#........#",
+"#########...########...#########",
+"#........X.X........X.X........#",
+"#........#.#........#.#........#",
+"#########...########...#########",
+"#........X.X........X.X........#",
+"#........#.#........#.#........#",
+"#########...########...#########",
+"#........X.X@@@@@@@@X.X........#",
+"#........#.#@@@@@@@@#.#........#",
+"#########...########...#########",
+"#........X.X........X.X........#",
+"#........#.#........#.#........#",
+"#########...########...#########",
+"#........X.X........X.X........#",
+"#........#.#........#.#........#",
+"#########...########...#########",
+"#........X.X........X.X........#",
+"#........#.#........#.#........#",
+"#########...########...#########",
+"#........#.#........#.#........#",
+"#........X.X........X.X........#",
+"#........#.#........#.#........#",
 "################################"
     };
 
@@ -374,19 +430,14 @@ namespace NSolver {
         }
     };
 
-    struct CapTask : Task {
-        Pet* target;
-    };
-
     struct Pet {
         enum struct Type { COW, PIG, RABBIT, DOG, CAT };
         int id;
         coord pos;
         Type type;
         bool is_captured;
-        CapTask* task;
-        Pet(int id = -1, coord pos = -1, Type type = Type(-1)) : id(id), pos(pos), type(type), is_captured(false), task(nullptr) {}
-        Pet(int id = -1, coord pos = -1, int type = -1) : id(id), pos(pos), type(Type(type)), is_captured(false), task(nullptr) {}
+        Pet(int id = -1, coord pos = -1, Type type = Type(-1)) : id(id), pos(pos), type(type), is_captured(false) {}
+        Pet(int id = -1, coord pos = -1, int type = -1) : id(id), pos(pos), type(Type(type)), is_captured(false) {}
         string stringify() const { return format("Pet[%d,%s,%s]", id, pos.stringify().c_str(), type_str().c_str()); }
     private:
         string type_str() const {
@@ -406,10 +457,6 @@ namespace NSolver {
         coord pos;
         Task* task;
         Human(int id = -1, coord pos = -1) : id(id), pos(pos), task(nullptr) {}
-        void assign(SeqTask* task_) {
-            this->task = task_;
-            task->assignee = this;
-        }
         string stringify() const { return format("Human[%d,%s]", id, pos.stringify().c_str()); }
     };
 
@@ -420,137 +467,55 @@ namespace NSolver {
         // 初期盤面における (人 -> タスク開始位置) の各移動コスト
         // 完成盤面における (タスク終了位置 -> タスク開始位置) の各移動コスト
         vector<Human> humans;
-        vector<SeqTask> tasks;
+        vector<SeqTask*> tasks;
 
-        SeqTaskScheduler(const vector<Human>& humans, const vector<SeqTask>& tasks) : humans(humans), tasks(tasks) {}
+        SeqTaskScheduler(const vector<Human>& humans, const vector<SeqTask*>& tasks) : humans(humans), tasks(tasks) {}
 
         vector<vector<int>> run() {
             int nh = humans.size();
             int nt = tasks.size();
+
+            // タスク 5 つ
+            // 5 人以上
+            // 割当全探索
 
             // 初期盤面における (人 -> タスク開始位置) の各移動コスト
             auto idist = make_vector(inf, nh, nt);
             for (int i = 0; i < nh; i++) {
                 auto hpos = humans[i].pos;
                 for (int j = 0; j < nt; j++) {
-                    auto tpos = tasks[j].start_pos();
+                    auto tpos = tasks[j]->start_pos();
                     idist[i][j] = hpos.distance(tpos);
                 }
             }
 
-            // 完成盤面
-            bool blk[NN] = {};
-            for (int y = 0; y < N; y++) {
-                for (int x = 0; x < N; x++) {
-                    if (board_str[y][x] == '#') {
-                        blk[y * N + x] = true;
+            vector<int> hids(nh);
+            vector<int> best_assign;
+            int min_cost = inf;
+            std::iota(hids.begin(), hids.end(), 0);
+            do {
+                vector<int> com(hids.begin(), hids.begin() + nt);
+                do {
+                    // task[i] に com[i] を割り当て
+                    int cost = 0;
+                    for (int tid = 0; tid < nt; tid++) {
+                        auto from = humans[com[tid]].pos;
+                        auto to = tasks[tid]->start_pos();
+                        chmax(cost, from.distance(to) + (int)tasks[tid]->actions.size());
                     }
-                }
-            }
-
-            // 完成盤面における (タスク終了位置 -> タスク開始位置) の各移動コスト
-            auto tdist = make_vector(inf, nt, nt);
-            for (int t1 = 0; t1 < nt; t1++) {
-                auto endpos = tasks[t1].end_pos();
-                int dist[NN];
-                Fill(dist, inf);
-                std::queue<coord> qu({ endpos });
-                dist[endpos.idx] = 0;
-                while (!qu.empty()) {
-                    auto u = qu.front(); qu.pop();
-                    for (int d = 0; d < 4; d++) {
-                        auto v = u.moved(d);
-                        if (blk[v.idx] || dist[v.idx] != inf) continue;
-                        dist[v.idx] = dist[u.idx] + 1;
-                        qu.push(v);
-                    }
-                }
-                for (int t2 = 0; t2 < nt; t2++) {
-                    auto startpos = tasks[t2].start_pos();
-                    tdist[t1][t2] = dist[startpos.idx];
-                }
-            }
-
-            // 貪欲初期解
-            auto get_init_sol = [&]() {
-                vector<int> assigned(nt, 0);
-                vector<vector<int>> tasklist(nh);
-                vector<int> cost(nh, 0);
-                while (std::accumulate(assigned.begin(), assigned.end(), 0) != nt) {
-                    // 現時点でコスト最小の human に最も近いタスクを貪欲に割当
-                    int hid = std::distance(cost.begin(), std::min_element(cost.begin(), cost.end()));
-                    if (tasklist[hid].empty()) {
-                        int min_dist = inf, min_tid = -1;
-                        for (int tid = 0; tid < nt; tid++) if (!assigned[tid]) {
-                            if (chmin(min_dist, idist[hid][tid])) {
-                                min_tid = tid;
-                            }
-                        }
-                        assigned[min_tid] = 1;
-                        tasklist[hid].push_back(min_tid);
-                        cost[hid] += min_dist + tasks[min_tid].actions.size();
-                    }
-                    else {
-                        int ptid = tasklist[hid].back();
-                        int min_dist = inf, min_tid = -1;
-                        for (int tid = 0; tid < nt; tid++) if (!assigned[tid]) {
-                            if (chmin(min_dist, tdist[ptid][tid])) {
-                                min_tid = tid;
-                            }
-                        }
-                        assigned[min_tid] = 1;
-                        tasklist[hid].push_back(min_tid);
-                        cost[hid] += min_dist + tasks[min_tid].actions.size();
-                    }
-                }
-                return tasklist;
-            };
-
-            auto evaluate = [&](const vector<vector<int>>& sol) {
-                vector<int> cost(nh, 0);
-                for (int hid = 0; hid < nh; hid++) {
-                    const auto& tids = sol[hid];
-                    cost[hid] += idist[hid][tids[0]] + tasks[tids[0]].actions.size();
-                    for (int i = 1; i < sol[hid].size(); i++) {
-                        cost[hid] += tdist[tids[i - 1]][tids[i]] + tasks[tids[i]].actions.size();
-                    }
-                }
-                return *std::max_element(cost.begin(), cost.end());
-            };
-
-            auto get_temp = [](double startTemp, double endTemp, double t, double T) {
-                return endTemp + (startTemp - endTemp) * (T - t) / T;
-            };
-
-            auto best_sol = get_init_sol();
-            int min_cost = evaluate(best_sol);
-            dump(min_cost);
-            constexpr int num_loop = 10000000;
-            auto sol = best_sol;
-            int cost = min_cost;
-            for (int loop = 0; loop < num_loop; loop++) {
-                int hid1 = rnd.next_int(nh), hid2 = rnd.next_int(nh);
-                int tidx1 = rnd.next_int(sol[hid1].size()), tidx2 = rnd.next_int(sol[hid2].size());
-                if (hid1 == hid2 && tidx1 == tidx2) continue;
-                std::swap(sol[hid1][tidx1], sol[hid2][tidx2]);
-                int now_cost = evaluate(sol);
-                int diff = now_cost - cost;
-                double temp = get_temp(3.0, 0.0, loop, num_loop);
-                double prob = exp(-diff / temp);
-                if (rnd.next_double() < prob) {
-                    cost = now_cost;
-                    if (cost < min_cost) {
-                        min_cost = cost;
-                        best_sol = sol;
+                    if (chmin(min_cost, cost)) {
+                        best_assign = com;
                         dump(min_cost);
                     }
-                }
-                else {
-                    std::swap(sol[hid1][tidx1], sol[hid2][tidx2]);
-                }
+                } while (std::next_permutation(com.begin(), com.end()));
+            } while (next_combination(hids.begin(), hids.begin() + nt, hids.end()));
+
+            vector<vector<int>> res(nh);
+            for (int tid = 0; tid < nt; tid++) {
+                res[best_assign[tid]].push_back(tid);
             }
 
-            return best_sol;
+            return res;
         }
     };
 
@@ -587,15 +552,15 @@ namespace NSolver {
         vector<Human> humans;
 
         bool is_blocked[NN];
-        bool is_zone[NN];
         int ctr_human[NN];
         int ctr_pet[NN];
 
-        bool dog_exists;
-        bool dog_kill_mode;
-        bool dog_kill_completed;
+        vector<SeqTask*> seq_tasks;
 
-        vector<SeqTask> seq_tasks;
+        // ---
+
+        vector<vector<int>> groups;
+        vector<int> group_move_dirs;
 
         Stats stats;
 
@@ -606,15 +571,6 @@ namespace NSolver {
             Fill(is_blocked, false);
             for (int y = 0; y < N; y++) is_blocked[y * N] = is_blocked[y * N + N - 1] = true;
             for (int x = 0; x < N; x++) is_blocked[x] = is_blocked[N * (N - 1) + x] = true; // 境界
-
-            Fill(is_zone, false);
-            for (int y = 0; y < N; y++) {
-                for (int x = 0; x < N; x++) {
-                    if (board_str[y][x] == '@') {
-                        is_zone[coord(y, x).idx] = true;
-                    }
-                }
-            }
 
             Fill(ctr_human, 0);
             Fill(ctr_pet, 0);
@@ -642,22 +598,7 @@ namespace NSolver {
                 stats.num_humans++;
             }
 
-            dog_exists = false;
-            for (const auto& pet : pets) if (pet.type == Pet::Type::DOG) dog_exists = true;
-            dog_kill_mode = false;
-            dog_kill_completed = false;
-
             seq_tasks = generate_seq_tasks(); // NOTE: dog_exists に依存あり
-            dump(seq_tasks.size());
-
-            for (auto& pet : pets) {
-                CapTask* task = new CapTask;
-                task->type = Task::Type::CAP;
-                task->assignee = nullptr;
-                task->is_completed = false;
-                task->target = &pet;
-                pet.task = task;
-            }
 
         }
 
@@ -675,7 +616,7 @@ namespace NSolver {
             }
         }
 
-        void update_cap_task_status() {
+        void update_cap_status() {
 
             // 捕獲判定
             UnionFind tree(NN);
@@ -695,14 +636,9 @@ namespace NSolver {
             }
 
             for (auto& pet : pets) if (!pet.is_captured) {
-                if (tree.size(pet.pos.idx) <= capture_thresh) {
+                if (tree.size(pet.pos.idx) <= 30) {
                     pet.is_captured = true;
-                    pet.task->is_completed = true;
-                    dump("captured!", turn, (pet.task->assignee ? pet.task->assignee->stringify() : "null"), pet, tree.size(pet.pos.idx));
-                    if (pet.task->assignee) {
-                        pet.task->assignee->task = nullptr;
-                        pet.task->assignee = nullptr;
-                    }
+                    dump("captured!", turn, pet, tree.size(pet.pos.idx));
                 }
             }
 
@@ -837,7 +773,7 @@ namespace NSolver {
                 is_blocked[pos.idx] = true;
                 // block を置いたことで生じる影響の解決
                 update_seq_task_status();
-                update_cap_task_status();
+                update_cap_status();
                 //show();
                 return d2c[d];
             }
@@ -900,16 +836,6 @@ namespace NSolver {
 
             string actions(humans.size(), '.');
 
-            // 1. ペット封印を解決
-            for (auto& human : humans) {
-                for (int d = 0; d < 4; d++) {
-                    if (can_trap(human, d, capture_thresh)) {
-                        actions[human.id] = resolve_block(human, Action::block(d));
-                        break;
-                    }
-                }
-            }
-
             // 2. seq 柵の設置を解決
             for (auto& human : humans) {
                 if (actions[human.id] != '.' || !human.task || human.task->type != Task::Type::SEQ) continue;
@@ -926,35 +852,115 @@ namespace NSolver {
                 actions[human.id] = resolve_move(human, stask->actions.front());
             }
 
-            // 4. cap task
-            for (auto& human : humans) {
-                if (actions[human.id] != '.' || !human.task || human.task->type != Task::Type::CAP) continue;
-                auto ctask = reinterpret_cast<CapTask*>(human.task);
-                if (human.pos.distance(ctask->target->pos) <= 2) {
-                    // 距離 2 まで接近（1 以下だと cow を捕獲できない)
-                    vector<coord> cands;
-                    for (int d = 0; d < 4; d++) {
-                        auto npos = human.pos.moved(d);
-                        if (!is_blocked[npos.idx]) {
-                            cands.push_back(npos);
-                        }
-                    }
-                    if (!cands.empty()) {
-                        auto act = Action::move(cands[rnd.next_int(cands.size())]);
-                        actions[human.id] = resolve_move(human, act);
-                    }
-                }
-                else {
-                    auto act = Action::move(ctask->target->pos);
-                    actions[human.id] = resolve_move(human, act);
+            return actions;
+        }
+
+        string resolve_dogkill_actions() {
+
+            string actions(humans.size(), '.');
+
+            auto& hl = humans[0];
+            auto& hr = humans[1];
+
+            if (!can_block(hl.pos.moved(0)) || !can_block(hr.pos.moved(2))) return actions;
+
+            is_blocked[hl.pos.moved(0).idx] = is_blocked[hr.pos.moved(2).idx] = true;
+
+            auto dist = bfs(hl.pos.moved(0).moved(0));
+            for (const auto& pet : pets) {
+                if (pet.type != Pet::Type::DOG) continue;
+                if (dist[pet.pos.idx] == inf) {
+                    is_blocked[hl.pos.moved(0).idx] = is_blocked[hr.pos.moved(2).idx] = false;
+                    return actions;
                 }
             }
 
-            // 6. gather
-            for (auto& human : humans) {
-                if (!human.task && actions[human.id] == '.' && human.pos != coord(16, 16)) {
-                    auto act = Action::move(coord(16, 16));
-                    actions[human.id] = resolve_move(human, act);
+            is_blocked[hl.pos.moved(0).idx] = is_blocked[hr.pos.moved(2).idx] = false;
+
+            actions[hl.id] = resolve_block(hl, Action::block(0));
+            actions[hr.id] = resolve_block(hr, Action::block(2));
+
+            return actions;
+        }
+
+        string resolve_group_actions() {
+
+            string actions(humans.size(), '.');
+
+            for (int gid = 0; gid < groups.size(); gid++) {
+                const auto& group = groups[gid];
+
+                // TODO: 中央・左右同時捕獲
+
+                // 1. 中央捕獲
+                auto& hl = humans[group[0]];
+                auto& hr = humans[group[1]];
+                if (can_block(hl.pos.moved(0)) && can_block(hr.pos.moved(2))) {
+                    is_blocked[hl.pos.moved(0).idx] = true;
+                    if (can_trap(hr, 2, 30)) {
+                        is_blocked[hl.pos.moved(0).idx] = false;
+                        actions[hl.id] = resolve_block(hl, Action::block(0));
+                        actions[hr.id] = resolve_block(hr, Action::block(2));
+                        continue;
+                    }
+                    is_blocked[hl.pos.moved(0).idx] = false;
+                }
+
+                // 2,3. 左右捕獲
+                bool trapped = false;
+                if (can_trap(hl, 2, 30)) {
+                    actions[hl.id] = resolve_block(hl, Action::block(2));
+                    trapped = true;
+                }
+                if (can_trap(hr, 0, 30)) {
+                    actions[hr.id] = resolve_block(hr, Action::block(0));
+                    trapped = true;
+                }
+
+                if (trapped) continue;
+
+                // 4. 上下移動
+                if (group_move_dirs[gid] == 1) {
+                    // 上へ移動
+                    if (!is_blocked[hl.pos.moved(1).idx] && !is_blocked[hr.pos.moved(1).idx]) {
+                        // できる
+                        for (int hid : group) {
+                            auto& h = humans[hid];
+                            actions[h.id] = resolve_move(h, Action::move(h.pos.moved(1)));
+                        }
+                    }
+                    else if (!is_blocked[hl.pos.moved(3).idx] && !is_blocked[hr.pos.moved(3).idx]) {
+                        // できない
+                        group_move_dirs[gid] = 3;
+                        for (int hid : group) {
+                            auto& h = humans[hid];
+                            actions[h.id] = resolve_move(h, Action::move(h.pos.moved(3)));
+                        }
+                    }
+                    else {
+                        assert(false);
+                    }
+                }
+                else if (group_move_dirs[gid] == 3) {
+                    // 上へ移動
+                    if (!is_blocked[hl.pos.moved(3).idx] && !is_blocked[hr.pos.moved(3).idx]) {
+                        // できる
+                        for (int hid : group) {
+                            auto& h = humans[hid];
+                            actions[h.id] = resolve_move(h, Action::move(h.pos.moved(3)));
+                        }
+                    }
+                    else if (!is_blocked[hl.pos.moved(1).idx] && !is_blocked[hr.pos.moved(1).idx]) {
+                        // できない
+                        group_move_dirs[gid] = 1;
+                        for (int hid : group) {
+                            auto& h = humans[hid];
+                            actions[h.id] = resolve_move(h, Action::move(h.pos.moved(1)));
+                        }
+                    }
+                    else {
+                        assert(false);
+                    }
                 }
             }
 
@@ -962,53 +968,24 @@ namespace NSolver {
         }
 
         bool all_seq_task_completed() const {
-            for (const auto& task : seq_tasks) if (!task.is_completed) return false;
+            for (const auto& task : seq_tasks) if (!task->is_completed) return false;
             return true;
         }
 
-        bool all_cap_task_completed() const {
-            for (const auto& pet : pets) if (!pet.task->is_completed) return false;
+        bool all_pet_captured() const {
+            for (const auto& pet : pets) if (!pet.is_captured) return false;
             return true;
-        }
-
-        void assign_tasks() {
-
-            // rearrange capture task
-
-            // cancel all capture task
-            for (auto& pet : pets) {
-                if (pet.type == Pet::Type::DOG || pet.is_captured || !pet.task->assignee) continue;
-                auto& human = *pet.task->assignee;
-                human.task = nullptr;
-                pet.task->assignee = nullptr;
-            }
-
-            // assign capture task
-            for (auto& pet : pets) if (pet.type != Pet::Type::DOG && !pet.is_captured && !pet.task->assignee && !is_zone[pet.pos.idx]) {
-                // 最寄りの暇人にタスクをアサイン
-                int min_dist = inf;
-                Human* assigned_human = nullptr;
-                auto dist = bfs(pet.pos);
-                for (auto& human : humans) if (!human.task) {
-                    if (chmin(min_dist, dist[human.pos.idx])) assigned_human = &human;
-                }
-                if (assigned_human) {
-                    pet.task->assignee = assigned_human;
-                    assigned_human->task = pet.task;
-                }
-            }
-
         }
 
         // 初期位置とコマンド列から action list を生成
-        SeqTask generate_seq_task(coord pos, const string& cmd_list) {
+        SeqTask* generate_seq_task(coord pos, const string& cmd_list) {
 
-            SeqTask task;
-            task.type = Task::Type::SEQ;
-            task.assignee = nullptr;
-            task.is_completed = false;
+            SeqTask* task = new SeqTask();
+            task->type = Task::Type::SEQ;
+            task->assignee = nullptr;
+            task->is_completed = false;
 
-            auto& actions = task.actions;
+            auto& actions = task->actions;
             actions.push_back(Action::move(pos));
             for (char c : cmd_list) {
                 assert(c != '.'); // wait は許容しない
@@ -1024,9 +1001,9 @@ namespace NSolver {
             return task;
         }
 
-        vector<SeqTask> generate_seq_tasks() {
+        vector<SeqTask*> generate_seq_tasks() {
 
-            vector<SeqTask> tasks;
+            vector<SeqTask*> tasks;
 
             auto rep = [](int n, const string& s) {
                 string res;
@@ -1034,169 +1011,17 @@ namespace NSolver {
                 return res;
             };
 
-            if (dog_exists) {
-                {
-                    string cmd = "rdLuDdLuDdLuDdLuDdLuDdLuDdLuDdLuDdLuDdLuDdLuDdLuDLuD";
-                    cmd += "RRRRR" + rep(11, "lRrU") + "l";
-                    tasks.push_back(generate_seq_task({ 17, 14 }, cmd));
-                }
-
-                for (int k = 0; k < 4; k++) {
-                    tasks.push_back(generate_seq_task({ 6 * k + 6 , 1 }, rep(3 * k + 1, "dUuR") + "dr"));
-                }
-                for (int k = 0; k < 5; k++) {
-                    tasks.push_back(generate_seq_task({ 1, 6 * k + 6 }, rep(3 * k + 2, "rLlD") + "r"));
-                }
-                for (int k = 0; k < 3; k++) {
-                    tasks.push_back(generate_seq_task({ 30, 24 - 6 * k }, rep(3 * k + 2, "lRrU") + "l"));
-                }
-                for (int k = 0; k < 4; k++) {
-                    tasks.push_back(generate_seq_task({ 24 - 6 * k, 30 }, rep(3 * k + 2, "uDdL") + "ul"));
-                }
-            }
-            else {
-                for (int k = 0; k < 5; k++) {
-                    tasks.push_back(generate_seq_task({ 6 * k + 6 , 1 }, rep(3 * k + 1, "dUuR") + "dr"));
-                }
-                for (int k = 0; k < 5; k++) {
-                    tasks.push_back(generate_seq_task({ 1, 6 * k + 6 }, rep(3 * k + 2, "rLlD") + "r"));
-                }
-                for (int k = 0; k < 4; k++) {
-                    tasks.push_back(generate_seq_task({ 30, 24 - 6 * k }, rep(3 * k + 2, "lRrU") + "l"));
-                }
-                for (int k = 0; k < 4; k++) {
-                    tasks.push_back(generate_seq_task({ 24 - 6 * k, 30 }, rep(3 * k + 2, "uDdL") + "ul"));
-                }
-            }
-
-            return tasks;
-        }
-
-        bool all_dog_captured() const {
-            for (const auto& pet : pets) if (pet.type == Pet::Type::DOG && !pet.is_captured) return false;
-            return true;
-        }
-
-        void toggle_dog_kill_mode() {
-            if (!dog_exists) return;
-            if (dog_kill_completed) return;
-            if (!dog_kill_mode) {
-                // 全 seq task が終了している
-                if (!all_seq_task_completed()) return;
-                // この時点で犬が全部捕獲されていたら (30,2) に block を置くタスクを発行
-                // (30,2) に最も近い人間の捕獲タスクを（あれば）キャンセルして割当て
-                if (all_dog_captured()) {
-                    SeqTask task;
-                    task.actions.push_back(Action::move(coord(30, 1)));
-                    task.actions.push_back(Action::block(0));
-                    task.type = Task::Type::SEQ;
-                    task.assignee = nullptr;
-                    task.is_completed = false;
-                    task.next_task = nullptr;
-                    seq_tasks.push_back(task);
-                    dog_kill_completed = true;
-                    stats.turn_dogkill_end = turn;
-                    dump(turn, "all dogs are already captured!");
-                    Human* nearest = &humans[0];
-                    {
-                        auto dist = bfs(coord(30, 2));
-                        int min_dist = dist[humans[0].pos.idx];
-                        for (int hid = 1; hid < humans.size(); hid++) {
-                            int d = dist[humans[hid].pos.idx];
-                            if (d < min_dist) {
-                                nearest = &humans[hid];
-                                min_dist = d;
-                            }
-                        }
-                    }
-                    if (nearest->task) {
-                        if (nearest->task->type == Task::Type::SEQ) {
-                            auto stask = reinterpret_cast<SeqTask*>(nearest->task);
-                            while (stask->next_task != nullptr) {
-                                stask = stask->next_task;
-                            }
-                            stask->next_task = &seq_tasks.back();
-                        }
-                        else {
-                            nearest->task->assignee = nullptr;
-                            nearest->task = &seq_tasks.back();
-                        }
-                    }
-                    else {
-                        nearest->task = &seq_tasks.back();
-                    }
-                    return;
-                }
-                dog_kill_mode = true;
-                dump(turn, "dog kill mode start!");
-                stats.turn_dogkill_start = turn;
-            }
-            else {
-                // 犬を全捕獲したらオフ
-                for (const auto& pet : pets) {
-                    if (pet.type == Pet::Type::DOG && !pet.is_captured) {
-                        return;
-                    }
-                }
-                dog_kill_mode = false;
-                dog_kill_completed = true;
-                dump(turn, "dog kill mode end!");
-                stats.turn_dogkill_end = turn;
-            }
-        }
-
-        string resolve_dogkill_actions() {
-
-            auto pos1 = coord(17, 13);
-            auto pos2 = coord(27, 3);
-            auto b1 = coord(18, 13);
-            auto b2 = coord(27, 4);
-
-            auto all_moved = [&]() {
-                for (int i = 0; i < humans.size() - 1; i++) {
-                    if (humans[i].pos != pos1) return false;
-                }
-                if (humans.back().pos != pos2) return false;
-                return true;
-            };
-
-            auto all_capture = [&]() {
-                if (!can_block(b1) || !can_block(b2)) return false;
-                is_blocked[b1.idx] = true;
-                is_blocked[b2.idx] = true;
-                auto dist = bfs(b1.moved(2));
-                for (const auto& pet : pets) if (!pet.is_captured && pet.type == Pet::Type::DOG && dist[pet.pos.idx] == inf) {
-                    is_blocked[b1.idx] = false;
-                    is_blocked[b2.idx] = false;
-                    return false;
-                }
-                is_blocked[b1.idx] = false;
-                is_blocked[b2.idx] = false;
-                return true;
-            };
-
-            string actions(humans.size(), '.');
-
-            if (all_moved() && all_capture()) {
-                actions[0] = resolve_block(humans[0], Action::block(3));
-                actions.back() = resolve_block(humans.back(), Action::block(0));
-                return actions;
-            }
-
-            for (int i = 0; i < humans.size() - 1; i++) {
-                auto& human = humans[i];
-                if (human.pos != pos1) {
-                    actions[human.id] = resolve_move(human, Action::move(pos1));
+            {
+                string cmd = rep(7, "lR") + "luRRuRR" + rep(7, "lR") + "luRRuRR" + rep(6, "lR") + "lDuDDL" + rep(7, "rL") + "ruLLuLL" + rep(7, "rL") + "ruLLuLL" + rep(6, "rL") + "rDu";
+                for (int i = 0; i < 4; i++) {
+                    tasks.push_back(generate_seq_task(coord(i * 6 + 3, 2), cmd));
                 }
             }
             {
-                auto& human = humans.back();
-                if (human.pos != pos2) {
-                    actions[human.id] = resolve_move(human, Action::move(pos2));
-                }
+                string cmd = rep(7, "lR") + "luDDdUUdRRuDDdUUdRR" + rep(7, "lR") + "luDDdUUdRRuDDdUUdRR" + rep(6, "lR") + "lDu";
+                tasks.push_back(generate_seq_task(coord(27, 2), cmd));
             }
-
-            return actions;
+            return tasks;
         }
 
         int calc_score() const {
@@ -1232,7 +1057,7 @@ namespace NSolver {
         void update_stats() {
             stats.score = calc_score();
             if (stats.turn_seq_end == -1 && all_seq_task_completed()) stats.turn_seq_end = turn;
-            if (stats.turn_all_captured == -1 && all_cap_task_completed()) stats.turn_all_captured = turn;
+            if (stats.turn_all_captured == -1 && all_pet_captured()) stats.turn_all_captured = turn;
         }
 
         void summary_stats() {
@@ -1241,6 +1066,11 @@ namespace NSolver {
                 stats.num_remained++;
                 stats.num_each_remained[(int)pet.type]++;
             }
+        }
+
+        bool all_dogs_captured() const {
+            for (const auto& pet : pets) if (pet.type == Pet::Type::DOG && !pet.is_captured) return false;
+            return true;
         }
 
         void solve() {
@@ -1254,31 +1084,97 @@ namespace NSolver {
             { // seq task assign
                 auto assign = SeqTaskScheduler(humans, seq_tasks).run();
                 for (int hid = 0; hid < humans.size(); hid++) {
+                    if (assign[hid].empty()) continue;
                     auto& human = humans[hid];
-                    SeqTask* task = &seq_tasks[assign[hid][0]];
+                    SeqTask* task = seq_tasks[assign[hid][0]];
                     human.task = task;
                     for (int i = 1; i < assign[hid].size(); i++) {
-                        task->next_task = &seq_tasks[assign[hid][i]];
+                        task->next_task = seq_tasks[assign[hid][i]];
                         task = task->next_task;
+                    }
+                }
+                coord ep[2] = { {16,10}, {16,21} };
+                // 偶奇で移動
+                for (int hid = 0; hid < humans.size(); hid++) {
+                    auto& human = humans[hid];
+                    auto task = new SeqTask();
+                    task->type = Task::Type::SEQ;
+                    task->is_completed = false;
+                    task->next_task = nullptr;
+                    task->assignee = nullptr;
+                    task->actions.push_back(Action::move(ep[hid % 2]));
+                    seq_tasks.push_back(task);
+                    if (!human.task) {
+                        human.task = task;
+                    }
+                    else {
+                        SeqTask* ptask = reinterpret_cast<SeqTask*>(human.task);
+                        while (ptask->next_task != nullptr) ptask = ptask->next_task;
+                        ptask->next_task = task;
                     }
                 }
             }
 
             update_seq_task_status();
             update_stats();
-            while (turn < MAX_TURN) {
-                toggle_dog_kill_mode();
+            while (turn < MAX_TURN && !all_seq_task_completed()) {
                 string actions;
-                if (dog_kill_mode) actions = resolve_dogkill_actions();
-                else actions = resolve_actions();
+                actions = resolve_actions();
                 cout << actions << endl;
                 load_pet_moves();
                 update_seq_task_status();
-                assign_tasks();
 
                 turn++;
 
                 update_stats();
+                dump(calc_score());
+                show();
+            }
+
+            // group task
+            while (turn < MAX_TURN && !all_dogs_captured()) {
+                string actions;
+                actions = resolve_dogkill_actions();
+                cout << actions << endl;
+                load_pet_moves();
+
+                turn++;
+
+                update_stats();
+                dump(calc_score());
+                show();
+            }
+
+            dump(turn, "all_seq_task_completed");
+            {
+                int num_groups = humans.size() / 2;
+                groups.resize(num_groups);
+                for (int gid = 0; gid < num_groups - 1; gid++) {
+                    groups[gid].push_back(gid * 2);
+                    groups[gid].push_back(gid * 2 + 1);
+                }
+                for (int i = (num_groups - 1) * 2; i < humans.size(); i++) {
+                    groups.back().push_back(i);
+                }
+                dump(groups);
+                group_move_dirs.resize(num_groups);
+                for (int gid = 0; gid < num_groups; gid++) {
+                    group_move_dirs[gid] = (gid % 2 == 0) ? 1 : 3;
+                }
+                dump(group_move_dirs);
+            }
+
+            // group task
+            while (turn < MAX_TURN) {
+                string actions;
+                actions = resolve_group_actions();
+                cout << actions << endl;
+                load_pet_moves();
+
+                turn++;
+
+                update_stats();
+                dump(calc_score());
                 show();
             }
 
@@ -1362,11 +1258,6 @@ namespace NSolver {
             for (const auto& human : humans) {
                 auto [y, x] = human.pos.unpack();
                 icon_human.copyTo(img(get_roi(y, x)));
-                if (human.task && human.task->type == Task::Type::CAP) {
-                    auto ctask = reinterpret_cast<CapTask*>(human.task);
-                    auto ppos = ctask->target->pos;
-                    cv::arrowedLine(img, get_point(human.pos), get_point(ppos), cv::Scalar(0, 0, 0));
-                }
             }
 
             cv::putText(img, format("turn: %d", turn), cv::Point(icon_size * 2 / 3, icon_size * 2 / 3), cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 0, 0), 3);
