@@ -296,7 +296,7 @@ int c2d[256];
 constexpr int inf = INT_MAX / 8;
 // 8-neighbor での連結成分数
 // 2 未満なら柵を置いても連結成分数は変化しない
-constexpr int cc_table[256] = { 
+constexpr int cc_table[256] = {
     0,1,1,1,1,1,1,1,1,2,2,2,1,1,1,1,
     1,2,2,2,1,1,1,1,1,2,2,2,1,1,1,1,
     1,2,2,2,2,2,2,2,2,3,3,3,2,2,2,2,
@@ -323,7 +323,7 @@ namespace NSolver {
     constexpr int N = 32;
     constexpr int NN = N * N;
     constexpr int dir[] = { 1, -N, -1, N };
-    constexpr int capture_thresh = 35;
+    int capture_thresh = 15;
 
     constexpr char board_str[N][N + 1] = {
 "################################",
@@ -971,9 +971,52 @@ namespace NSolver {
             return false;
         }
 
+        void insert_interrupt_task() {
+            constexpr int dist_thresh = 2;
+            vector<std::pair<double, coord>> spots;
+            for (int y = 1; y < N - 1; y++) {
+                for (int x = 1; x < N - 1; x++) {
+                    double score = evaluate(coord(y, x));
+                    if (score > 0.0) {
+                        spots.emplace_back(score, coord(y, x));
+                    }
+                }
+            }
+            std::sort(spots.begin(), spots.end(), [](const auto& a, const auto& b) {
+                return a.first > b.first;
+                });
+            dump(spots);
+            // 近い spot があれば "spot まで移動するタスク", "spot から元の位置に戻るタスク" を挿入
+            for (auto& human : humans) {
+                if (human.task && human.task->type == Task::Type::CAP) continue;
+                for (auto [score, spot] : spots) {
+                    if (human.pos.distance(spot) <= dist_thresh) {
+                        SeqTask* task1 = new SeqTask();
+                        task1->assignee = &human;
+                        task1->is_completed = false;
+                        task1->type = Task::Type::SEQ;
+                        task1->actions.push_back(Action::move(spot));
+                        SeqTask* task2 = new SeqTask();
+                        task2->assignee = &human;
+                        task2->is_completed = false;
+                        task2->type = Task::Type::SEQ;
+                        task2->actions.push_back(Action::move(human.pos));
+                        task1->next_task = task2;
+                        if (human.task) task2->next_task = reinterpret_cast<SeqTask*>(human.task);
+                        human.task = task1;
+                    }
+                }
+            }
+            update_seq_task_status();
+        }
+
         string resolve_actions() {
 
             string actions(humans.size(), '.');
+
+            if (all_cap_task_completed()) return actions;
+
+            insert_interrupt_task();
 
             // 1. ペット封印を解決
             for (auto& human : humans) {
@@ -1342,6 +1385,7 @@ namespace NSolver {
             update_seq_task_status();
             update_stats();
             while (turn < MAX_TURN) {
+                if (all_seq_task_completed()) capture_thresh = 35;
                 toggle_dog_kill_mode();
                 string actions;
                 if (dog_kill_mode) actions = resolve_dogkill_actions();
@@ -1383,7 +1427,7 @@ namespace NSolver {
                 mask |= (is_blocked[pos.idx + d8[d]]) ? (1 << d) : 0;
             }
             if (cc_table[mask] < 2) return 0.0;
-            
+
             // (num pets) / (area)
             is_blocked[pos.idx] = true;
             UnionFind tree(NN);
@@ -1480,7 +1524,7 @@ namespace NSolver {
             for (const auto& human : humans) {
                 auto [y, x] = human.pos.unpack();
                 icon_human.copyTo(img(get_roi(y, x)));
-                if (human.task && human.task->type == Task::Type::CAP) {
+                if (!dog_kill_mode && human.task && human.task->type == Task::Type::CAP) {
                     auto ctask = reinterpret_cast<CapTask*>(human.task);
                     auto ppos = ctask->target->pos;
                     cv::arrowedLine(img, get_point(human.pos), get_point(ppos), cv::Scalar(0, 0, 0));
@@ -1503,6 +1547,7 @@ namespace NSolver {
             cv::putText(img, format("turn: %d", turn), cv::Point(icon_size * 2 / 3, icon_size * 2 / 3), cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 255), 2);
 
             cv::imshow("vis", img);
+            cv::imwrite(format("C:\\Users\\komori3\\OneDrive\\dev\\compro\\heuristic\\tasks\\AHC008\\tmp\\%3d.png", turn), img);
             cv::waitKey(delay);
         }
 #else
@@ -1621,6 +1666,8 @@ int main() {
 
     NSolver::State state(cin, cout);
     state.solve();
+
+    //cerr << timer.elapsed_ms() << endl;
 
     return 0;
 }

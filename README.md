@@ -43,3 +43,8 @@ dogkill が偶然全ての犬を捕獲した後に発動するとバグる
 
 牛の殺し方を工夫する必要がある
 
+---
+
+最終提出の visualize (seed=3)
+
+<img src="media/vis_seed3.gif">
